@@ -1,8 +1,22 @@
 __pycache__/
 *.pyc
-.env
 *.egg-info/
 dist/
 build/
-.streamlit/
 .pytest_cache/
+.streamlit/
+
+# Environment and secrets
+.env
+.venv/
+
+# IDE
+.idea/
+.claude/
+
+# Docker (not used)
+Dockerfile
+docker-compose.yml
+
+# Build artifacts
+multi_agent_investment_research.egg-info/
