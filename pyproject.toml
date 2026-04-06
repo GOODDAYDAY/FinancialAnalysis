@@ -1,0 +1,25 @@
+[project]
+name = "multi-agent-investment-research"
+version = "0.1.0"
+description = "Multi-Agent AI Investment Research System with Bull vs Bear Debate"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.3.0",
+    "langchain-core>=0.3.0",
+    "openai>=1.0.0",
+    "pydantic>=2.0.0",
+    "yfinance>=0.2.0",
+    "duckduckgo-search>=6.0.0",
+    "streamlit>=1.30.0",
+    "structlog>=24.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
