@@ -1,4 +1,4 @@
-"""Risk & Compliance agent: risk assessment, disclaimer injection."""
+"""Risk and Compliance agent node: risk assessment, disclaimer injection."""
 
 import logging
 from backend.llm_client import call_llm_structured

@@ -1,4 +1,4 @@
-"""Fundamental Analysis agent: financial ratios, peer comparison, red flags."""
+"""Fundamental Analysis agent node: financial ratios, peer comparison, red flags."""
 
 import logging
 from backend.llm_client import call_llm_structured
@@ -13,16 +13,12 @@ def fundamental_node(state: dict) -> dict:
     market_data = state.get("market_data", {})
 
     if not market_data:
-        default = FundamentalOutput(
-            health_score=5.0,
-            summary="Insufficient data for fundamental analysis.",
-        )
+        default = FundamentalOutput(summary="Insufficient data for fundamental analysis.")
         return {
             "fundamental": default.model_dump(),
             "reasoning_chain": [{"agent": "fundamental", "note": "no market data available"}],
         }
 
-    # Extract key metrics for the prompt
     pe = market_data.get("pe_ratio", "N/A")
     cap = market_data.get("market_cap", "N/A")
     price = market_data.get("current_price", "N/A")
@@ -34,7 +30,7 @@ def fundamental_node(state: dict) -> dict:
         f"and provide a comprehensive assessment.\n\n"
         f"Consider: P/E ratio relative to sector, market capitalization, "
         f"price relative to 52-week range, and any red flags.\n"
-        f"Compare with typical tech sector peers if applicable.\n"
+        f"Compare with typical sector peers if applicable.\n"
         f"Health score: 1 (very unhealthy) to 10 (excellent health)."
     )
 

@@ -1,9 +1,8 @@
 """
-Bull vs Bear Debate agent: multi-agent debate mechanism.
+Bull vs Bear Debate agent node.
 
 F-16: Structured debate rounds where Bull and Bear analysts argue
-using evidence from upstream analysis agents.
-
+using evidence from upstream analysis agents + quant signals.
 Implemented as a LangGraph self-loop node with conditional edge.
 """
 
@@ -61,7 +60,6 @@ def _build_analysis_context(state: dict) -> str:
 def debate_node(state: dict) -> dict:
     """
     One round of Bull vs Bear debate.
-
     Bull argues first, then Bear sees Bull's argument and rebuts.
     This node self-loops via conditional edge for multiple rounds.
     """
@@ -83,25 +81,19 @@ def debate_node(state: dict) -> dict:
                 f"Key Points: {entry.get('key_points', [])}\n"
             )
 
-    # ── BULL ARGUES ──
+    # Bull argues
     bull_system = (
         f"You are a BULLISH investment analyst (the Bull). Your job is to make the STRONGEST "
         f"possible case for BUYING {ticker}.\n\n"
         f"Rules:\n"
-        f"- Cite SPECIFIC data points from the analysis (prices, ratios, scores)\n"
+        f"- Cite SPECIFIC data points from the analysis (prices, ratios, scores, quant signals)\n"
         f"- Acknowledge weaknesses but explain why they are manageable\n"
-        f"- Be persuasive but honest — do not fabricate data\n"
         f"- In round 2+, directly address the Bear's previous arguments\n"
         f"- Provide exactly 3 key points and supporting evidence"
     )
 
-    bull_prompt = (
-        f"Round {current_round}: Present your BULLISH case for {ticker}.\n\n"
-        f"{analysis_context}\n{prior_text}"
-    )
-
     bull_result = call_llm_structured(
-        user_prompt=bull_prompt,
+        user_prompt=f"Round {current_round}: Present your BULLISH case for {ticker}.\n\n{analysis_context}\n{prior_text}",
         response_model=DebateArgument,
         system_prompt=bull_system,
         temperature=settings.debate_temperature,
@@ -109,15 +101,14 @@ def debate_node(state: dict) -> dict:
     bull_result.role = "bull"
     bull_result.round_number = current_round
 
-    # ── BEAR ARGUES (seeing Bull's argument) ──
+    # Bear argues (sees Bull's argument)
     bear_system = (
         f"You are a BEARISH investment analyst (the Bear). Your job is to make the STRONGEST "
         f"possible case for NOT buying (or SELLING) {ticker}.\n\n"
         f"Rules:\n"
-        f"- Cite SPECIFIC data points from the analysis\n"
+        f"- Cite SPECIFIC data points from the analysis and quant signals\n"
         f"- Directly challenge the Bull's arguments with counter-evidence\n"
         f"- Highlight risks, red flags, and uncertainties\n"
-        f"- Be persuasive but honest — do not fabricate data\n"
         f"- Provide exactly 3 key points, evidence, and rebuttals to the Bull"
     )
 
@@ -157,7 +148,7 @@ def debate_node(state: dict) -> dict:
 
 
 def should_continue_debate(state: dict) -> str:
-    """Conditional edge: continue debate or move to advisory."""
+    """Conditional edge: continue debate or move to risk assessment."""
     current_round = state.get("debate_round", 0)
     max_rounds = settings.debate_max_rounds
 

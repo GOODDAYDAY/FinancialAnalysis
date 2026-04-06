@@ -1,9 +1,9 @@
-"""News fetcher using multiple sources with deduplication."""
+"""News data sources: yfinance news + DuckDuckGo search + deduplication."""
 
 import logging
 import hashlib
 from backend.state import NewsArticle
-from backend.data.mock_data import mock_news
+from backend.agents.market_data.mock import get_mock_news
 
 logger = logging.getLogger(__name__)
 
@@ -27,18 +27,17 @@ def fetch_news(ticker: str, company_name: str = "") -> list[dict]:
 
     if not articles:
         logger.warning("No news from any source for %s, using mock", ticker)
-        return mock_news(ticker)
+        return get_mock_news(ticker)
 
-    # Deduplicate
     deduped = _deduplicate(articles)
-    logger.info("News for %s: %d raw, %d after dedup", ticker, len(articles), len(deduped))
+    logger.info("News for %s: %d raw -> %d after dedup", ticker, len(articles), len(deduped))
 
-    # Sort by relevance and return top 10
     deduped.sort(key=lambda a: a.get("relevance_score", 0), reverse=True)
-    return [a for a in deduped[:10]]
+    return deduped[:10]
 
 
 def _fetch_yfinance_news(ticker: str) -> list[dict]:
+    """Fetch news articles from yfinance."""
     import yfinance as yf
     stock = yf.Ticker(ticker)
     news = stock.news or []
@@ -59,6 +58,7 @@ def _fetch_yfinance_news(ticker: str) -> list[dict]:
 
 
 def _fetch_ddg_news(query: str) -> list[dict]:
+    """Fetch news articles from DuckDuckGo search."""
     from duckduckgo_search import DDGS
     with DDGS() as ddgs:
         results = list(ddgs.news(query, max_results=5))
@@ -78,12 +78,11 @@ def _fetch_ddg_news(query: str) -> list[dict]:
 
 
 def _deduplicate(articles: list[dict]) -> list[dict]:
-    """Remove duplicates based on title similarity (simple hash approach)."""
+    """Remove duplicate articles based on title similarity (simple hash)."""
     seen = set()
     unique = []
     for article in articles:
         title = article.get("title", "").lower().strip()
-        # Normalize: remove punctuation and extra spaces
         normalized = "".join(c for c in title if c.isalnum() or c.isspace())
         normalized = " ".join(normalized.split())
         key = hashlib.md5(normalized.encode()).hexdigest()[:12]

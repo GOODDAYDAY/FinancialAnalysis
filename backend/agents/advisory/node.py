@@ -1,4 +1,4 @@
-"""Advisory agent: synthesize all analysis + debate into recommendation."""
+"""Advisory agent node: synthesize all analysis + debate into recommendation."""
 
 import logging
 from backend.llm_client import call_llm_structured
@@ -35,18 +35,17 @@ def advisory_node(state: dict) -> dict:
     system_prompt = (
         f"You are a senior investment advisor synthesizing all analysis for {ticker}.\n\n"
         f"You have access to: market data, sentiment analysis, fundamental analysis, "
-        f"risk assessment, and a structured Bull vs Bear debate.\n\n"
+        f"quant signals (algorithmic, unbiased), risk assessment, and a structured Bull vs Bear debate.\n\n"
         f"Weight the dimensions:\n"
-        f"- Fundamental analysis: 35%\n"
-        f"- Sentiment analysis: 25%\n"
-        f"- Risk assessment: 25%\n"
-        f"- Technical indicators: 15%\n\n"
+        f"- Fundamental analysis: 30%\n"
+        f"- Quant signals: 25%\n"
+        f"- Sentiment analysis: 20%\n"
+        f"- Risk assessment: 15%\n"
+        f"- Technical indicators: 10%\n\n"
         f"Consider the debate outcome: which side made stronger arguments? "
         f"What points were conceded vs contested?\n\n"
         f"Provide a clear recommendation (buy/hold/sell), confidence level (0-1), "
-        f"and investment horizon (short-term/medium-term/long-term).\n"
-        f"Include supporting factors (from winning arguments) and "
-        f"dissenting factors (from strong counter-arguments)."
+        f"and investment horizon (short-term/medium-term/long-term)."
     )
 
     user_prompt = (

@@ -1,7 +1,7 @@
-"""Market Data agent: fetch stock prices and technical indicators."""
+"""Market Data agent node: fetch stock prices and technical indicators."""
 
 import logging
-from backend.data.market_api import fetch_market_data
+from backend.agents.market_data.providers import fetch_market_data
 
 logger = logging.getLogger(__name__)
 

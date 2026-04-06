@@ -1,4 +1,4 @@
-"""Sentiment Analysis agent: analyze news sentiment with explainable reasoning."""
+"""Sentiment Analysis agent node: analyze news sentiment with explainable reasoning."""
 
 import logging
 from backend.llm_client import call_llm_structured
@@ -13,7 +13,7 @@ def sentiment_node(state: dict) -> dict:
     articles = state.get("news_articles", [])
 
     if not articles:
-        logger.warning("No news articles for sentiment analysis")
+        logger.warning("No news articles available for sentiment analysis")
         default = SentimentOutput(
             overall_score=0.0,
             confidence=0.1,

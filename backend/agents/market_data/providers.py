@@ -1,14 +1,14 @@
-"""Market data fetcher using yfinance with mock fallback."""
+"""Market data providers: yfinance live data + mock fallback."""
 
 import logging
 from backend.state import MarketDataResult
-from backend.data.mock_data import mock_market_data
+from backend.agents.market_data.mock import get_mock_market_data
 
 logger = logging.getLogger(__name__)
 
 
 def fetch_market_data(ticker: str) -> MarketDataResult:
-    """Fetch real-time stock data. Falls back to mock on any error."""
+    """Fetch real-time stock data via yfinance. Falls back to mock on any error."""
     try:
         import yfinance as yf
 
@@ -17,26 +17,23 @@ def fetch_market_data(ticker: str) -> MarketDataResult:
         hist = stock.history(period="1y")
 
         if hist.empty:
-            logger.warning("No history data for %s, using mock", ticker)
-            return mock_market_data(ticker)
+            logger.warning("Empty history for %s, falling back to mock", ticker)
+            return get_mock_market_data(ticker)
 
         closes = hist["Close"].values.tolist()
         current_price = closes[-1] if closes else None
 
-        # Calculate technical indicators
+        # Technical indicators
         sma_20 = sum(closes[-20:]) / 20 if len(closes) >= 20 else None
         sma_50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else None
         sma_200 = sum(closes[-200:]) / 200 if len(closes) >= 200 else None
         rsi_14 = _compute_rsi(closes, 14)
         macd, macd_signal = _compute_macd(closes)
 
-        # Technical signals
+        # Generate technical signal descriptions
         signals = []
         if sma_20 and sma_50:
-            if sma_20 > sma_50:
-                signals.append("SMA20 above SMA50 (bullish)")
-            else:
-                signals.append("SMA20 below SMA50 (bearish)")
+            signals.append(f"SMA20 {'above' if sma_20 > sma_50 else 'below'} SMA50 ({'bullish' if sma_20 > sma_50 else 'bearish'})")
         if rsi_14 is not None:
             if rsi_14 > 70:
                 signals.append(f"RSI={rsi_14:.1f} — overbought")
@@ -45,10 +42,7 @@ def fetch_market_data(ticker: str) -> MarketDataResult:
             else:
                 signals.append(f"RSI={rsi_14:.1f} — neutral")
         if macd is not None and macd_signal is not None:
-            if macd > macd_signal:
-                signals.append("MACD above signal (bullish)")
-            else:
-                signals.append("MACD below signal (bearish)")
+            signals.append(f"MACD {'above' if macd > macd_signal else 'below'} signal ({'bullish' if macd > macd_signal else 'bearish'})")
 
         prev_close = closes[-2] if len(closes) >= 2 else current_price
         change = (current_price - prev_close) if current_price and prev_close else None
@@ -78,10 +72,11 @@ def fetch_market_data(ticker: str) -> MarketDataResult:
         )
     except Exception as e:
         logger.warning("Failed to fetch market data for %s: %s. Using mock.", ticker, e)
-        return mock_market_data(ticker)
+        return get_mock_market_data(ticker)
 
 
 def _compute_rsi(closes: list[float], period: int = 14) -> float | None:
+    """Compute Relative Strength Index."""
     if len(closes) < period + 1:
         return None
     deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
@@ -99,6 +94,7 @@ def _compute_rsi(closes: list[float], period: int = 14) -> float | None:
 def _compute_macd(
     closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9
 ) -> tuple[float | None, float | None]:
+    """Compute MACD line and signal line."""
     if len(closes) < slow + signal:
         return None, None
 
@@ -111,7 +107,6 @@ def _compute_macd(
 
     ema_fast = ema(closes, fast)
     ema_slow = ema(closes, slow)
-    # Align lengths
     offset = len(ema_fast) - len(ema_slow)
     macd_line = [f - s for f, s in zip(ema_fast[offset:], ema_slow)]
 

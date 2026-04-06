@@ -22,6 +22,12 @@ from backend.agents.debate import debate_node, should_continue_debate
 from backend.agents.risk import risk_node
 from backend.agents.advisory import advisory_node
 
+# Each agent lives in its own sub-package:
+#   backend/agents/<agent_name>/
+#     __init__.py   - exports the node function
+#     node.py       - the LangGraph node function
+#     *.py          - agent-specific modules (providers, signals, sources, etc.)
+
 logger = logging.getLogger(__name__)
 
 

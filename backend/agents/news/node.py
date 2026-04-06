@@ -1,7 +1,7 @@
-"""News agent: collect and deduplicate news from multiple sources."""
+"""News agent node: collect and deduplicate news from multiple sources."""
 
 import logging
-from backend.data.news_api import fetch_news
+from backend.agents.news.sources import fetch_news
 
 logger = logging.getLogger(__name__)
 

@@ -14,6 +14,7 @@ INJECTION_PATTERNS = [
 
 
 class IntentResult(BaseModel):
+    """Structured output for intent classification."""
     intent: str = Field(description="One of: stock_query, stock_comparison, chitchat, out_of_scope")
     ticker: str = Field(default="", description="Extracted stock ticker symbol, e.g. AAPL")
     company_name: str = Field(default="", description="Company name if mentioned")
@@ -23,13 +24,13 @@ class IntentResult(BaseModel):
 def orchestrator_node(state: dict) -> dict:
     """F-01, F-02, F-03: Parse intent, extract ticker, check for injection."""
     query = state.get("user_query", "")
-    logger.info("Orchestrator processing: %s", query[:100])
+    logger.info("Orchestrator processing query: %s", query[:100])
 
-    # F-14: Basic prompt injection check
+    # F-14: Prompt injection check (runs before LLM call)
     query_lower = query.lower()
     for pattern in INJECTION_PATTERNS:
         if pattern in query_lower:
-            logger.warning("Prompt injection detected: %s", pattern)
+            logger.warning("Prompt injection detected: pattern='%s'", pattern)
             return {
                 "intent": "rejected",
                 "ticker": "",
@@ -52,7 +53,7 @@ def orchestrator_node(state: dict) -> dict:
     )
 
     ticker = result.ticker.upper().strip() if result.ticker else ""
-    logger.info("Intent: %s, Ticker: %s", result.intent, ticker)
+    logger.info("Intent classified: intent=%s, ticker=%s", result.intent, ticker)
 
     return {
         "intent": result.intent,
