@@ -15,6 +15,8 @@ from backend.state import ResearchState
 from backend.agents.orchestrator import orchestrator_node
 from backend.agents.market_data import market_data_node
 from backend.agents.news import news_node
+from backend.agents.announcement import announcement_node
+from backend.agents.social_sentiment import social_sentiment_node
 from backend.agents.sentiment import sentiment_node
 from backend.agents.fundamental import fundamental_node
 from backend.agents.quant import quant_node
@@ -57,10 +59,12 @@ def build_graph():
     """Build and compile the LangGraph StateGraph."""
     graph = StateGraph(ResearchState)
 
-    # Register nodes (8 agents)
+    # Register nodes (10 agents)
     graph.add_node("orchestrator", _safe(orchestrator_node, "orchestrator"))
     graph.add_node("market_data", _safe(market_data_node, "market_data"))
     graph.add_node("news", _safe(news_node, "news"))
+    graph.add_node("announcement", _safe(announcement_node, "announcement"))
+    graph.add_node("social_sentiment", _safe(social_sentiment_node, "social_sentiment"))
     graph.add_node("sentiment", _safe(sentiment_node, "sentiment"))
     graph.add_node("fundamental", _safe(fundamental_node, "fundamental"))
     graph.add_node("quant", _safe(quant_node, "quant"))
@@ -81,11 +85,13 @@ def build_graph():
         },
     )
 
-    # Data collection
+    # Data collection: market_data → [news, announcement, social_sentiment] (sequential)
     graph.add_edge("market_data", "news")
+    graph.add_edge("news", "announcement")
+    graph.add_edge("announcement", "social_sentiment")
 
-    # Analysis pipeline
-    graph.add_edge("news", "sentiment")
+    # Analysis pipeline: social_sentiment → sentiment → fundamental
+    graph.add_edge("social_sentiment", "sentiment")
     graph.add_edge("sentiment", "fundamental")
 
     # Quant → Debate: quant provides algorithmic evidence for the debate
@@ -131,6 +137,9 @@ def run_analysis(query: str) -> dict:
         "intent": "",
         "market_data": {},
         "news_articles": [],
+        "announcements": [],
+        "financial_summary": {},
+        "social_sentiment": {},
         "sentiment": {},
         "fundamental": {},
         "quant": {},

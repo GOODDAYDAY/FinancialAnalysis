@@ -21,6 +21,8 @@ def _build_analysis_context(state: dict) -> str:
     sentiment = state.get("sentiment", {})
     fundamental = state.get("fundamental", {})
     quant = state.get("quant", {})
+    announcements = state.get("announcements", [])
+    social = state.get("social_sentiment", {})
 
     # Build quant section
     quant_text = ""
@@ -53,7 +55,13 @@ def _build_analysis_context(state: dict) -> str:
         f"  Health Score: {fundamental.get('health_score', 'N/A')}/10\n"
         f"  Red Flags: {fundamental.get('red_flags', [])}\n"
         f"  Summary: {fundamental.get('summary', 'N/A')}\n"
-        f"{quant_text}"
+        f"{quant_text}\n"
+        f"COMPANY ANNOUNCEMENTS ({len(announcements)} items):\n"
+        + ("".join(f"  - [{a.get('date','')}] {a.get('title','')[:80]}\n" for a in announcements[:5]) if announcements else "  No announcements available.\n")
+        + f"\nSOCIAL SENTIMENT (Eastmoney):\n"
+        f"  Summary: {social.get('summary', 'No social data')}\n"
+        f"  Is Trending: {social.get('is_trending', 'N/A')}\n"
+        f"  Trending Rank: {social.get('trending_rank', 'N/A')}\n"
     )
 
 

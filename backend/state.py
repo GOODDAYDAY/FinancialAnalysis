@@ -116,6 +116,11 @@ class ResearchState(TypedDict, total=False):
     fundamental: dict
     risk: dict
 
+    # Information collection (akshare)
+    announcements: list[dict]
+    financial_summary: dict
+    social_sentiment: dict
+
     # Quant
     quant: dict
 
