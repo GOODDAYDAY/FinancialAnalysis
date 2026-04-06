@@ -1,7 +1,14 @@
 """Application configuration via environment variables."""
 
 import os
+from pathlib import Path
 from dataclasses import dataclass
+
+# Auto-load .env from project root
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    from dotenv import load_dotenv
+    load_dotenv(_env_path)
 
 
 @dataclass
