@@ -1,9 +1,11 @@
 """
-LangGraph StateGraph: wires all 7 agents into the analysis pipeline.
+LangGraph StateGraph: wires all 8 agents into the analysis pipeline.
 
 Graph topology:
-  orchestrator → [market_data, news] (parallel)
-  → sentiment → fundamental → debate (self-loop x2) → risk → advisory
+  orchestrator → market_data → news
+  → sentiment → fundamental → quant → debate (self-loop x2) → risk → advisory
+
+Quant Agent runs pure algorithms (no LLM) and feeds into the debate as "data referee".
 """
 
 import logging
@@ -15,6 +17,7 @@ from backend.agents.market_data import market_data_node
 from backend.agents.news import news_node
 from backend.agents.sentiment import sentiment_node
 from backend.agents.fundamental import fundamental_node
+from backend.agents.quant import quant_node
 from backend.agents.debate import debate_node, should_continue_debate
 from backend.agents.risk import risk_node
 from backend.agents.advisory import advisory_node
@@ -48,12 +51,13 @@ def build_graph():
     """Build and compile the LangGraph StateGraph."""
     graph = StateGraph(ResearchState)
 
-    # Register nodes
+    # Register nodes (8 agents)
     graph.add_node("orchestrator", _safe(orchestrator_node, "orchestrator"))
     graph.add_node("market_data", _safe(market_data_node, "market_data"))
     graph.add_node("news", _safe(news_node, "news"))
     graph.add_node("sentiment", _safe(sentiment_node, "sentiment"))
     graph.add_node("fundamental", _safe(fundamental_node, "fundamental"))
+    graph.add_node("quant", _safe(quant_node, "quant"))
     graph.add_node("debate", _safe(debate_node, "debate"))
     graph.add_node("risk", _safe(risk_node, "risk"))
     graph.add_node("advisory", _safe(advisory_node, "advisory"))
@@ -71,15 +75,18 @@ def build_graph():
         },
     )
 
-    # Data collection: market_data → news (sequential for simplicity)
+    # Data collection
     graph.add_edge("market_data", "news")
 
     # Analysis pipeline
     graph.add_edge("news", "sentiment")
     graph.add_edge("sentiment", "fundamental")
 
-    # Debate: fundamental → debate, debate loops, then → risk
-    graph.add_edge("fundamental", "debate")
+    # Quant → Debate: quant provides algorithmic evidence for the debate
+    graph.add_edge("fundamental", "quant")
+    graph.add_edge("quant", "debate")
+
+    # Debate self-loop
     graph.add_conditional_edges(
         "debate",
         should_continue_debate,
@@ -94,7 +101,7 @@ def build_graph():
     graph.add_edge("advisory", END)
 
     compiled = graph.compile()
-    logger.info("LangGraph compiled successfully with 8 nodes")
+    logger.info("LangGraph compiled successfully with 9 nodes")
     return compiled
 
 
@@ -120,6 +127,7 @@ def run_analysis(query: str) -> dict:
         "news_articles": [],
         "sentiment": {},
         "fundamental": {},
+        "quant": {},
         "risk": {},
         "debate_history": [],
         "debate_round": 0,

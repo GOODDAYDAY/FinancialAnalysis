@@ -116,6 +116,9 @@ class ResearchState(TypedDict, total=False):
     fundamental: dict
     risk: dict
 
+    # Quant
+    quant: dict
+
     # Debate
     debate_history: Annotated[list[dict], operator.add]
     debate_round: int

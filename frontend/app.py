@@ -27,6 +27,7 @@ def _render_analysis(result: dict, ticker: str):
     market_data = result.get("market_data", {})
     sentiment = result.get("sentiment", {})
     fundamental = result.get("fundamental", {})
+    quant = result.get("quant", {})
     risk = result.get("risk", {})
     debate_history = result.get("debate_history", [])
     errors = result.get("errors", [])
@@ -114,6 +115,18 @@ def _render_analysis(result: dict, ticker: str):
                 st.write(f"  - {sig}")
         if market_data.get("is_mock"):
             st.warning("Using demo data - real-time data unavailable")
+
+    # Quant Analysis
+    if quant:
+        with st.expander("Quant Analysis (Algorithmic)"):
+            qscore = quant.get("score", 0)
+            qverdict = quant.get("verdict", "N/A")
+            qcolor = "green" if qscore > 10 else "red" if qscore < -10 else "orange"
+            st.markdown(f"**Quant Score: :{qcolor}[{qscore}/100]** ({qverdict})")
+            st.write(f"Bullish signals: {quant.get('bullish_count', 0)} | Bearish signals: {quant.get('bearish_count', 0)}")
+            for sig in quant.get("signals", []):
+                icon = "[+]" if sig["type"] == "bullish" else "[-]" if sig["type"] == "bearish" else "[=]"
+                st.write(f"  {icon} **{sig['name']}**: {sig['detail']} (weight: {sig['weight']})")
 
     # Sentiment Details
     with st.expander("Sentiment Analysis"):

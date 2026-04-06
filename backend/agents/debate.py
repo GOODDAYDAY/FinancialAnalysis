@@ -16,11 +16,26 @@ logger = logging.getLogger(__name__)
 
 
 def _build_analysis_context(state: dict) -> str:
-    """Flatten all analysis results into text for debaters."""
+    """Flatten all analysis results into text for debaters, including quant signals."""
     ticker = state.get("ticker", "???")
     market = state.get("market_data", {})
     sentiment = state.get("sentiment", {})
     fundamental = state.get("fundamental", {})
+    quant = state.get("quant", {})
+
+    # Build quant section
+    quant_text = ""
+    if quant and quant.get("score") is not None:
+        quant_text = (
+            f"\nQUANT ANALYSIS (algorithmic, no AI bias):\n"
+            f"  Quant Score: {quant.get('score', 0)}/100 ({quant.get('verdict', 'N/A')})\n"
+            f"  Bullish Signals: {quant.get('bullish_count', 0)}\n"
+            f"  Bearish Signals: {quant.get('bearish_count', 0)}\n"
+        )
+        for sig in quant.get("signals", []):
+            icon = "+" if sig["type"] == "bullish" else "-" if sig["type"] == "bearish" else "="
+            quant_text += f"  [{icon}] {sig['name']}: {sig['detail']} (weight: {sig['weight']})\n"
+        quant_text += f"  Summary: {quant.get('summary', '')}\n"
 
     return (
         f"=== Analysis Data for {ticker} ===\n\n"
@@ -39,6 +54,7 @@ def _build_analysis_context(state: dict) -> str:
         f"  Health Score: {fundamental.get('health_score', 'N/A')}/10\n"
         f"  Red Flags: {fundamental.get('red_flags', [])}\n"
         f"  Summary: {fundamental.get('summary', 'N/A')}\n"
+        f"{quant_text}"
     )
 
 

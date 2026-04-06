@@ -13,6 +13,7 @@ def advisory_node(state: dict) -> dict:
     market_data = state.get("market_data", {})
     sentiment = state.get("sentiment", {})
     fundamental = state.get("fundamental", {})
+    quant = state.get("quant", {})
     risk = state.get("risk", {})
     debate_history = state.get("debate_history", [])
 
@@ -63,6 +64,10 @@ def advisory_node(state: dict) -> dict:
         f"Health: {fundamental.get('health_score', 'N/A')}/10\n"
         f"Red Flags: {fundamental.get('red_flags', [])}\n"
         f"Summary: {fundamental.get('summary', 'N/A')}\n\n"
+        f"--- QUANT ANALYSIS (algorithmic, no AI bias) ---\n"
+        f"Quant Score: {quant.get('score', 'N/A')}/100\n"
+        f"Verdict: {quant.get('verdict', 'N/A')}\n"
+        f"Signals: {[s['name'] + '(' + s['type'] + ')' for s in quant.get('signals', [])]}\n\n"
         f"--- RISK ---\n"
         f"Risk Score: {risk.get('risk_score', 'N/A')}/10\n"
         f"Level: {risk.get('risk_level', 'N/A')}\n"
