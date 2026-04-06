@@ -13,6 +13,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.graph import run_analysis  # noqa: E402
+from backend.agents.followup import handle_followup  # noqa: E402
 
 st.set_page_config(
     page_title="AI Investment Research",
@@ -194,11 +195,13 @@ def _render_analysis(result: dict, ticker: str):
 st.title("Multi-Agent Investment Research System")
 st.caption("Powered by LangGraph + DeepSeek | 7 AI Agents with Bull vs Bear Debate")
 
-# Session state for chat history
+# Session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "results" not in st.session_state:
     st.session_state.results = []
+if "last_analysis" not in st.session_state:
+    st.session_state.last_analysis = None  # Stores full state for follow-up
 
 # Display chat history
 for msg in st.session_state.messages:
@@ -206,7 +209,7 @@ for msg in st.session_state.messages:
         st.write(msg["content"])
 
 # Chat input
-query = st.chat_input("Ask about any stock (e.g., 'Analyze AAPL', 'What do you think about Tesla?')")
+query = st.chat_input("Ask about any stock, or ask follow-up questions about the last analysis")
 
 if query:
     # Add user message
@@ -214,30 +217,92 @@ if query:
     with st.chat_message("user"):
         st.write(query)
 
-    # Run analysis
     with st.chat_message("assistant"):
-        with st.spinner("Agents are analyzing... (this may take 30-60 seconds)"):
-            try:
-                result = run_analysis(query)
-            except Exception as e:
-                st.error(f"Analysis failed: {e}")
-                result = None
+        # Check if this is a follow-up question about a prior analysis
+        is_followup = _is_followup_question(query, st.session_state.last_analysis)
 
-        if result:
-            intent = result.get("intent", "")
-            ticker = result.get("ticker", "")
+        if is_followup and st.session_state.last_analysis:
+            # Follow-up: use stored context from all agents
+            ticker = st.session_state.last_analysis.get("ticker", "?")
+            with st.spinner(f"Answering follow-up about {ticker}..."):
+                try:
+                    answer = handle_followup(query, st.session_state.last_analysis)
+                    st.write(answer)
+                    st.session_state.messages.append({"role": "assistant", "content": answer})
+                except Exception as e:
+                    st.error(f"Follow-up failed: {e}")
+        else:
+            # New analysis: run full pipeline
+            with st.spinner("Agents are analyzing... (this may take 60-90 seconds)"):
+                try:
+                    result = run_analysis(query)
+                except Exception as e:
+                    st.error(f"Analysis failed: {e}")
+                    result = None
 
-            # Handle non-stock intents
-            if intent in ("chitchat", "out_of_scope", "rejected"):
-                if intent == "rejected":
-                    msg = "Your query was flagged for safety reasons. Please rephrase."
-                elif intent == "out_of_scope":
-                    msg = "This system is designed for stock analysis. I can't help with that request, but try asking about a specific stock!"
+            if result:
+                intent = result.get("intent", "")
+                ticker = result.get("ticker", "")
+
+                if intent in ("chitchat", "out_of_scope", "rejected"):
+                    if intent == "rejected":
+                        msg = "Your query was flagged for safety reasons. Please rephrase."
+                    elif intent == "out_of_scope":
+                        msg = "This system is designed for stock analysis. Try asking about a specific stock!"
+                    else:
+                        msg = "Hello! I'm an investment research assistant. Ask me about any stock - for example, 'Analyze AAPL' or 'What do you think about Microsoft?'"
+                    st.write(msg)
+                    st.session_state.messages.append({"role": "assistant", "content": msg})
                 else:
-                    msg = "Hello! I'm an investment research assistant. Ask me about any stock - for example, 'Analyze AAPL' or 'What do you think about Microsoft?'"
-                st.write(msg)
-                st.session_state.messages.append({"role": "assistant", "content": msg})
-            else:
-                # Display full analysis
-                st.session_state.results.append(result)
-                _render_analysis(result, ticker)
+                    # Store full state for follow-up questions
+                    st.session_state.last_analysis = result
+                    st.session_state.results.append(result)
+                    _render_analysis(result, ticker)
+
+
+def _is_followup_question(query: str, last_analysis: dict | None) -> bool:
+    """
+    Heuristic to detect if a query is a follow-up about the last analysis
+    rather than a new stock analysis request.
+    """
+    if not last_analysis:
+        return False
+
+    query_lower = query.lower()
+
+    # Explicit new analysis keywords
+    new_analysis_keywords = ["analyze", "analyse", "analysis of", "what about", "look at"]
+    # Check if query mentions a different ticker
+    last_ticker = last_analysis.get("ticker", "").lower()
+
+    # If query contains a stock code pattern (digits + exchange suffix), it's likely new
+    import re
+    has_ticker_pattern = bool(re.search(r'\d{4,6}(\.(SS|SZ|SH|HK))?', query))
+
+    # If query starts with analysis keywords and has a ticker, it's new
+    for kw in new_analysis_keywords:
+        if kw in query_lower and has_ticker_pattern:
+            return False
+
+    # Follow-up indicators
+    followup_keywords = [
+        "why", "how", "what", "tell me more", "explain", "detail",
+        "which", "can you", "could you", "elaborate",
+        "risk", "debate", "bull", "bear", "sentiment",
+        "fundamental", "quant", "announcement", "social",
+        "compared", "versus", "support", "against",
+    ]
+
+    # If query is short and uses follow-up language, it's a follow-up
+    if any(kw in query_lower for kw in followup_keywords):
+        # But not if it also has a new ticker
+        if not has_ticker_pattern:
+            return True
+
+    # If query references the last ticker, it could be either
+    if last_ticker and last_ticker in query_lower:
+        # Short questions about the same ticker are follow-ups
+        if len(query.split()) < 15:
+            return True
+
+    return False
