@@ -1,0 +1,79 @@
+@startuml
+title Multi-Agent Interaction Sequence - Stock Query
+
+actor User
+participant "Chat UI" as UI
+participant "Orchestrator\nAgent" as ORC
+participant "Risk &\nCompliance" as RC
+participant "Market Data\nAgent" as MD
+participant "News\nAgent" as NA
+participant "Sentiment\nAgent" as SA
+participant "Fundamental\nAgent" as FA
+participant "Advisory\nAgent" as ADV
+
+User -> UI: "What do you think about AAPL?"
+UI -> ORC: Forward user message
+
+== Intent Recognition ==
+ORC -> ORC: Parse intent: stock_query\nExtract ticker: AAPL
+ORC -> RC: Pre-filter input for injection
+RC --> ORC: Input clean
+
+== Parallel Data Collection ==
+ORC -> MD: Request AAPL market data
+ORC -> NA: Request AAPL news
+activate MD
+activate NA
+
+MD -> MD: Fetch price, volume, market cap
+MD -> MD: Calculate SMA, RSI, MACD
+MD --> ORC: Market data + technical indicators
+deactivate MD
+
+NA -> NA: Query 2+ news sources
+NA -> NA: Deduplicate & score relevance
+NA --> ORC: Top-N news articles
+deactivate NA
+
+== Sequential Analysis ==
+ORC -> SA: Analyze news sentiment
+activate SA
+SA -> SA: Score each article (-1 to +1)
+SA -> SA: Generate reasoning chain
+SA --> ORC: Sentiment scores + reasoning
+deactivate SA
+
+par Parallel Analysis
+  ORC -> FA: Analyze fundamentals
+  activate FA
+  FA -> FA: Calculate P/E, P/B, ROE
+  FA -> FA: Peer comparison + red flags
+  FA --> ORC: Fundamental report
+  deactivate FA
+else
+  ORC -> RC: Assess risk
+  activate RC
+  RC -> RC: Calculate beta, volatility
+  RC -> RC: Score risk 1-10
+  RC --> ORC: Risk assessment
+  deactivate RC
+end
+
+== Recommendation Synthesis ==
+ORC -> ADV: All analysis results
+activate ADV
+ADV -> ADV: Weigh dimensions\n(Fundamental 35%, Sentiment 25%\nRisk 25%, Technical 15%)
+ADV -> ADV: Generate Buy/Hold/Sell
+ADV -> ADV: Assemble reasoning chain
+ADV --> ORC: Recommendation + reasoning
+deactivate ADV
+
+== Compliance & Response ==
+ORC -> RC: Post-filter output
+RC -> RC: Inject disclaimer
+RC --> ORC: Compliant response
+
+ORC --> UI: Formatted response\nwith reasoning trace
+UI --> User: Display recommendation\n+ expandable reasoning
+
+@enduml

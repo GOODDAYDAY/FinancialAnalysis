@@ -1,0 +1,54 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Investor" as user
+actor "LLM API" as llm
+actor "Financial Data API" as api
+actor "News API" as news
+
+rectangle "Multi-Agent Investment Research System" {
+  usecase "Query Stock Analysis" as UC1
+  usecase "Follow-up Question" as UC2
+  usecase "Compare Stocks" as UC3
+  usecase "View Reasoning Chain" as UC4
+  usecase "Receive Recommendation" as UC5
+
+  usecase "Parse Intent" as UC10
+  usecase "Fetch Market Data" as UC11
+  usecase "Collect News" as UC12
+  usecase "Analyze Sentiment" as UC13
+  usecase "Analyze Fundamentals" as UC14
+  usecase "Assess Risk" as UC15
+  usecase "Generate Recommendation" as UC16
+  usecase "Check Compliance" as UC17
+  usecase "Inject Disclaimer" as UC18
+}
+
+user --> UC1
+user --> UC2
+user --> UC3
+user --> UC4
+user --> UC5
+
+UC1 --> UC10 : <<include>>
+UC1 --> UC11 : <<include>>
+UC1 --> UC12 : <<include>>
+UC12 --> UC13 : <<include>>
+UC11 --> UC14 : <<include>>
+UC11 --> UC15 : <<include>>
+UC13 --> UC15 : <<include>>
+UC15 --> UC16 : <<include>>
+UC14 --> UC16 : <<include>>
+UC16 --> UC17 : <<include>>
+UC17 --> UC18 : <<include>>
+
+UC10 ..> llm : uses
+UC13 ..> llm : uses
+UC16 ..> llm : uses
+UC11 ..> api : uses
+UC12 ..> news : uses
+
+UC2 .> UC1 : <<extend>>
+UC3 .> UC1 : <<extend>>
+@enduml

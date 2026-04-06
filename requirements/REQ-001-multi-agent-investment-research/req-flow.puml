@@ -1,0 +1,80 @@
+@startuml
+title Multi-Agent Investment Research - Main Flow
+
+start
+
+:User enters query via Chat UI;
+
+partition "Orchestrator Agent" {
+  :Parse user intent and extract ticker;
+  if (Intent type?) then (stock_query)
+    :Validate ticker symbol;
+    if (Valid ticker?) then (yes)
+      :Construct execution DAG;
+    else (no)
+      :Return fuzzy match suggestions;
+      stop
+    endif
+  elseif (chitchat) then
+    :Generate conversational response;
+    stop
+  elseif (out_of_scope) then
+    :Politely decline with explanation;
+    stop
+  endif
+}
+
+fork
+  partition "Market Data Agent" {
+    :Fetch real-time stock price;
+    :Retrieve historical data;
+    :Calculate technical indicators;
+    note right: SMA, RSI, MACD
+  }
+fork again
+  partition "News Agent" {
+    :Collect news from 2+ sources;
+    :Deduplicate and score relevance;
+    :Return top-N articles;
+  }
+end fork
+
+partition "Sentiment Analysis Agent" {
+  :Score sentiment per article;
+  :Generate aspect-level analysis;
+  :Produce reasoning chain;
+  note right: Explainable AI
+}
+
+fork
+  partition "Fundamental Analysis Agent" {
+    :Calculate financial ratios;
+    :Compare with peers;
+    :Detect red flags;
+    :Generate health score;
+  }
+fork again
+  partition "Risk & Compliance Agent" {
+    :Calculate risk metrics;
+    :Score risk 1-10;
+    :Check for prompt injection;
+    :Prepare compliance checks;
+  }
+end fork
+
+partition "Advisory Agent" {
+  :Synthesize all analysis;
+  :Generate Buy/Hold/Sell recommendation;
+  :Assemble reasoning chain;
+  :Attach confidence level;
+}
+
+partition "Orchestrator Agent" {
+  :Inject compliance disclaimer;
+  :Format response for display;
+}
+
+:Display result in Chat UI;
+
+stop
+@enduml
