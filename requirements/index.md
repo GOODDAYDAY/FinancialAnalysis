@@ -6,7 +6,7 @@
 
 | ID | Name | Status | Updated | Description |
 |:---|:---|:---|:---|:---|
-| REQ-001 | Multi-Agent Investment Research System | In Development | 2026-04-06 | A Python-based multi-agent AI system that analyzes stock data, news sentiment, fundamentals, and risk to generate explainable investment recommendations |
+| REQ-001 | Multi-Agent Investment Research System | In Development | 2026-04-07 | A Python-based 11-agent AI system using LangGraph + DeepSeek that analyzes stock data, news, announcements, social sentiment, fundamentals, quant signals, and grid trading strategies via Bull-vs-Bear debate to produce explainable buy/hold/sell recommendations. Includes scheduled QQ email reports and Linux systemd deployment. |
 
 ## Archived
 

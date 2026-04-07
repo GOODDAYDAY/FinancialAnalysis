@@ -1,7 +1,7 @@
 # REQ-001 Multi-Agent Investment Research System
 > Status: Requirement Finalized
 > Created: 2026-04-06
-> Updated: 2026-04-06 (v2)
+> Updated: 2026-04-07 (v3)
 
 ## 1. Background
 In modern financial markets, investors rely on multiple sources of information such as financial statements, stock market data, and news sentiment to make investment decisions. However, manually collecting and analyzing these sources is time-consuming and may lead to incomplete or biased judgments.
@@ -90,17 +90,23 @@ flowchart TD
 ```
 **Figure 3.1 — 7-Agent system architecture with debate mechanism (LangGraph + DeepSeek)**
 
-The system consists of 7 specialized agents collaborating through a shared state mechanism:
+The system consists of 11 specialized agents collaborating through a shared state mechanism:
 
 | # | Agent | Responsibility |
 |:---|:---|:---|
-| 1 | Orchestrator Agent | Intent recognition, multi-turn context, DAG scheduling, fallback coordination |
-| 2 | Market Data Agent | Real-time/historical stock prices, technical indicators, data caching |
-| 3 | News Agent | Multi-source news collection, deduplication, credibility scoring |
-| 4 | Sentiment Analysis Agent | NLP sentiment scoring, aspect-level analysis, reasoning chain |
-| 5 | Fundamental Analysis Agent | Financial ratio analysis, peer comparison, health scoring |
-| 6 | Risk & Compliance Agent | Risk scoring, prompt injection defense, disclaimer injection, PII detection |
-| 7 | Advisory Agent | Recommendation synthesis, confidence scoring, reasoning chain assembly |
+| 1 | Orchestrator Agent | Intent recognition, ticker extraction, prompt injection defense |
+| 2 | Market Data Agent | Real-time/historical stock prices, technical indicators (yfinance) |
+| 3 | News Agent | Multi-source news collection (yfinance + DuckDuckGo), deduplication |
+| 4 | Announcement Agent | Company announcements & financial reports via akshare (Caixin / Eastmoney / THS) |
+| 5 | Social Sentiment Agent | Eastmoney 股吧 retail investor comment scores, hot stock rankings via akshare |
+| 6 | Sentiment Analysis Agent | NLP sentiment scoring on news, aspect-level analysis, reasoning chain |
+| 7 | Fundamental Analysis Agent | Financial ratio analysis, peer comparison, health scoring |
+| 8 | Quant Agent | Pure-algorithm composite signals (MA / RSI / MACD / 52W / P/E), no LLM |
+| 9 | Grid Strategy Agent | Pure-algorithm grid trading proposals (4 variants) with fee-aware profit math |
+| 10 | Debate Agent | Bull vs Bear multi-round debate with rebuttals and data citation |
+| 11 | Risk & Compliance Agent | Risk scoring, disclaimer injection |
+| 12 | Advisory Agent | Weighted recommendation synthesis, reasoning chain assembly |
+| + | Follow-up Agent | Post-analysis Q&A using preserved full agent context |
 
 ### 3.2 Orchestrator Agent
 
@@ -492,6 +498,152 @@ flowchart TD
 | AC-19 | F-18 Reasoning | Check recommendation output | Full reasoning chain shows each agent's contribution + debate transcript |
 | AC-20 | F-19 Fallback | Kill News API during query | System returns partial analysis with caveat about missing sentiment data |
 | AC-21 | NF-01 Performance | Time single stock query end-to-end | Completes within 30 seconds |
+| AC-22 | F-20 Quant | Query AAPL | Returns score -100..+100 with verdict and at least 3 signals |
+| AC-23 | F-21 Grid | Query AAPL | Returns 4 strategy variants (short/medium/long/accumulation) with profit per cycle and fees |
+| AC-24 | F-22 Announcement | Query 600519.SS | Returns financial summary with ROE from akshare |
+| AC-25 | F-23 Social Sentiment | Query 600519.SS | Returns Eastmoney comment score and trending status |
+| AC-26 | F-24 Follow-up | Ask "Why did the Bear say it is risky?" after analysis | Returns answer citing specific Bear arguments from prior debate |
+| AC-27 | F-25 Email | Schedule task with watchlist | Sends HTML email via QQ SMTP with full analysis |
+| AC-28 | F-26 Deployment | Run install_linux.sh on fresh server | Sets up systemd web service + scheduled timer |
+
+## 6.1 Extended Functional Requirements (v3)
+
+### 3.11 Quant Agent (F-20)
+
+#### F-20 Algorithmic Quantitative Scoring
+- **Main flow**:
+  1. Receive market data (price, SMA20/50/200, RSI, MACD, P/E, 52W high/low)
+  2. Compute signals from 5 sub-systems via pure math (no LLM):
+     - Moving average system: golden cross / death cross / price vs MA200
+     - RSI momentum: extreme overbought / overbought / neutral / oversold / extreme oversold
+     - MACD: strong bullish / bullish crossover / strong bearish / bearish crossover
+     - 52-week range position + drawdown severity
+     - P/E valuation tier (negative / extreme / high / moderate / low)
+  3. Sum weighted signals into composite score clamped to [-100, +100]
+  4. Classify verdict: STRONG BUY / MODERATE BUY / NEUTRAL / MODERATE SELL / STRONG SELL
+  5. Output passed to Debate Agent as "data referee" evidence
+- **Error handling**:
+  - Missing market data fields: skip the affected sub-signal, continue with available data
+- **Edge cases**:
+  - Sparse data (newly listed stock): produce score from whatever signals can be computed
+  - All-zero signals: return score 0 with NEUTRAL verdict
+
+### 3.12 Grid Strategy Agent (F-21)
+
+#### F-21 Grid Trading Strategy Proposal
+- **Main flow**:
+  1. Assess grid trading suitability from volatility, trend strength, RSI position
+  2. Generate 4 grid strategy variants:
+     - **Short-term Tight Grid**: ±8% range, 16 grids, 1% step
+     - **Medium-term Balanced Grid**: ±15% range, 15 grids, 2% step
+     - **Long-term Wide Grid**: ±25% range, 10 grids, 5% step
+     - **Accumulation Grid**: -20%/+10% asymmetric, 12 grids
+  3. For each strategy compute:
+     - Lower / upper price bounds, grid count, grid step (absolute + percentage)
+     - Shares per grid (rounded down to multiples of 100, A-share lot size)
+     - Capital required per grid and total
+     - Profit per round-trip after fees (commission + transfer fee + stamp tax)
+     - Break-even price move percentage
+     - Estimated cycles per month based on annualized volatility
+     - Estimated monthly return percentage
+  4. Identify best strategy by highest estimated monthly return among profitable variants
+  5. Attach caveats per strategy (fees too high, margin too thin, lot size warning)
+- **Error handling**:
+  - No market data: return suitable=false, NO DATA verdict
+  - Negative profit per cycle: mark with caveat but still return the strategy
+- **Edge cases**:
+  - Very low volatility: warn that grid cycles will be infrequent
+  - Strong trend stocks: warn that grid will lag trend following
+  - High P/E or no P/E: still produce strategies, surface in caveats
+
+### 3.13 Announcement Agent (F-22)
+
+#### F-22 Company Announcements & Financial Reports
+- **Main flow**:
+  1. Receive ticker; normalize to akshare format (strip .SS / .SZ suffix)
+  2. Fetch company news from Caixin via akshare
+  3. Fetch financial abstract from akshare (THS): revenue, net profit, ROE, gross margin, debt ratio
+  4. Return structured data: announcements list + financial summary dict
+- **Error handling**:
+  - HK stocks (.HK): not supported by akshare, return empty gracefully
+  - Stale akshare data: still return what's available
+- **Edge cases**:
+  - Newly listed: limited financial history, return what exists
+
+### 3.14 Social Sentiment Agent (F-23)
+
+#### F-23 Retail Investor Social Sentiment (Eastmoney)
+- **Main flow**:
+  1. Receive ticker, normalize to akshare format
+  2. Fetch comment score from Eastmoney via akshare `stock_comment_em()`
+  3. Fetch hot stock rankings via `stock_hot_rank_em()`
+  4. Check if current ticker is in top trending list
+  5. Fetch individual hot rank details via `stock_hot_rank_detail_em()`
+  6. Return: comment_sentiment dict, hot_rank dict, is_trending bool, summary string
+- **Error handling**:
+  - akshare rate limiting: return empty dict, do not crash
+  - Hot rank API schema change: catch exception, log, return empty
+- **Edge cases**:
+  - HK / US stocks: not in Chinese platforms, return empty social data
+
+### 3.15 Follow-up Agent (F-24)
+
+#### F-24 Conversational Follow-up with Full Context
+- **Main flow**:
+  1. After a complete analysis, store the entire result state (all 11 agent outputs) in session
+  2. When user asks a follow-up question, detect via heuristic (keywords like "why", "explain", "what about" + no new ticker pattern)
+  3. Build a comprehensive text context dump from all stored agent outputs
+  4. Send to DeepSeek with system prompt explaining available data dimensions
+  5. Return natural language answer that cites specific agent findings
+- **Error handling**:
+  - No prior analysis exists: treat as new analysis request
+  - LLM call fails: surface error to user
+- **Edge cases**:
+  - User asks about a different ticker: detect new ticker pattern, route to full pipeline instead
+
+### 3.16 Email Notification (F-25)
+
+#### F-25 Scheduled Stock Analysis Email
+- **Main flow**:
+  1. Standalone script reads watchlist from `WATCHLIST` env var (comma-separated tickers)
+  2. For each ticker, run the full multi-agent analysis pipeline
+  3. Render HTML email body via `templates.py`:
+     - Single-stock detailed report with metrics, debate, grid strategies, disclaimer
+     - Multi-stock batch summary table
+  4. Send via QQ Mail SMTP_SSL on port 465 using authorization code (not password)
+  5. Support `--dry-run` to skip email send for testing
+  6. Support `--summary-only` to send one batch email instead of one per stock
+  7. Support `--tickers` CLI arg to override watchlist
+- **Error handling**:
+  - Invalid SMTP config: log error, exit with code 1, do not send
+  - SMTP authentication failure: log specific hint about authorization code
+  - Per-ticker analysis failure: continue with remaining tickers, report failures
+- **Edge cases**:
+  - Empty watchlist: log error, exit
+  - All analyses fail: do not send empty email
+
+### 3.17 Deployment & Scheduling (F-26)
+
+#### F-26 Cross-Platform Deployment
+- **Main flow**:
+  1. **Windows**: `scripts/run.bat` zero-dependency launcher
+     - Auto-installs uv via PowerShell if missing
+     - Creates Python 3.11 venv if missing
+     - Installs dependencies if missing
+     - Prompts for DeepSeek API key if .env missing
+     - Launches Streamlit
+  2. **Windows scheduling**: `scripts/register_schedule.bat` registers Windows Task Scheduler entry
+  3. **Linux**: `deploy/install_linux.sh` one-click installer
+     - Installs uv via curl
+     - Creates venv and installs deps
+     - Generates systemd service for web app on port 8501
+     - Generates systemd timer for scheduled email task
+     - Configures ufw firewall to open 8501
+- **Error handling**:
+  - uv install fails: print install URL for manual installation
+  - systemd setup fails (e.g., not root): print sudo hint
+- **Edge cases**:
+  - Re-running installer: detects existing venv, skips creation, only updates deps
 
 ## 7. Tier 2 Features (Stretch Goals)
 
@@ -537,3 +689,4 @@ These items are expected engineering practices for the project. They are not tra
 |:---|:---|:---|:---|:---|
 | v1 | 2026-04-06 | Initial version | ALL | - |
 | v2 | 2026-04-06 | Add multi-agent debate mechanism (F-16); change LLM to DeepSeek; add LangGraph as orchestration framework; renumber F-17 to F-19, Tier 2 F-20 to F-26 | F-16, F-17, F-18, F-19, Section 1, Section 3.1, Section 3.8, Section 3.9, Section 6, Section 7 | User requirement: multi-agent debate, DeepSeek LLM, LangGraph framework |
+| v3 | 2026-04-07 | Add Quant Agent (F-20), Grid Strategy Agent (F-21), Announcement Agent (F-22), Social Sentiment Agent (F-23), Follow-up Agent (F-24), Email Notification (F-25), Cross-platform Deployment (F-26); update agent count from 7 to 11; update architecture diagram and agent table; add acceptance criteria AC-22 to AC-28 | F-20, F-21, F-22, F-23, F-24, F-25, F-26, Section 3.1, Section 3.11-3.17, Section 6 | User requirement: add Quant referee, grid trading strategies, akshare data sources, conversational follow-up, scheduled QQ email, Linux deployment |
