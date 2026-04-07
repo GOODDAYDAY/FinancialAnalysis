@@ -106,13 +106,15 @@ if not exist "%PROJECT_DIR%\.env" (
 )
 echo.
 
-REM -------- Step 5: Start scheduler daemon --------
+REM -------- Step 5: Start scheduler daemon in a SEPARATE VISIBLE window --------
 REM Daemon always launches; it self-disables via config/schedule.json
-REM "enabled": false (or env AUTO_RUN_SCHEDULE=false as fallback).
-echo [5/6] Starting scheduler daemon in background...
-start "AI Investment Scheduler" /MIN cmd /c "uv run --no-sync python scripts\scheduler_daemon.py"
-echo      Daemon started. Check logs\scheduler.log for progress.
+REM "enabled": false. We use a separate visible window so the daemon
+REM logs (analysis progress, agent steps, ...) are easy to watch.
+echo [5/6] Starting scheduler daemon in a separate window...
+echo      A new "AI Investment Scheduler" window will pop up.
+echo      All daemon logs appear there + logs\scheduler.log
 echo      To disable: set "enabled": false in config/schedule.json
+start "AI Investment Scheduler" cmd /k "uv run --no-sync python scripts\scheduler_daemon.py"
 echo.
 
 REM -------- Step 6: Launch Streamlit --------

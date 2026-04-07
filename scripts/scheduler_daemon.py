@@ -71,13 +71,12 @@ from typing import Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# UTF-8 console for Windows
-if sys.stdout.encoding != "utf-8":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
+# UTF-8 console for Windows + line buffering so logs appear immediately
+try:
+    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
+    sys.stderr.reconfigure(encoding="utf-8", line_buffering=True)
+except Exception:
+    pass
 
 # Auto-load .env from project root
 _env_path = PROJECT_ROOT / ".env"
@@ -285,22 +284,25 @@ def run_job(job: Job) -> int:
     if job.summary_only:
         cmd.append("--summary-only")
 
-    logger.info("Launching job '%s': %d queries -> %d recipients",
-                job.name, len(job.queries), len(job.recipients) or "<env>")
+    logger.info("Launching job '%s': %d queries -> %s recipients",
+                job.name, len(job.queries),
+                len(job.recipients) if job.recipients else "<env-default>")
+    logger.info("Subprocess output below (live, not captured):")
+    logger.info("-" * 60)
     try:
+        # IMPORTANT: do NOT use capture_output=True. Let the child's stdout
+        # and stderr inherit our terminal so the user sees agent progress
+        # in real time (otherwise they'd wait 60-90s with no output).
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"   # disable Python output buffering in child
+        env["PYTHONIOENCODING"] = "utf-8"
         result = subprocess.run(
             cmd,
             cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=30 * 60,
+            env=env,
         )
-        if result.stdout:
-            logger.info("[%s] stdout tail:\n%s", job.name, result.stdout[-2000:])
-        if result.stderr:
-            logger.warning("[%s] stderr tail:\n%s", job.name, result.stderr[-2000:])
+        logger.info("-" * 60)
         logger.info("Job '%s' finished with exit code %d", job.name, result.returncode)
         return result.returncode
     except subprocess.TimeoutExpired:
