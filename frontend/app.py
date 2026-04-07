@@ -244,6 +244,46 @@ def _render_analysis(result: dict, ticker: str):
     st.session_state.messages.append({"role": "assistant", "content": summary})
 
 
+def _is_followup_question(query: str, last_analysis: dict | None) -> bool:
+    """
+    Heuristic to detect if a query is a follow-up about the last analysis
+    rather than a new stock analysis request.
+    """
+    if not last_analysis:
+        return False
+
+    query_lower = query.lower()
+    last_ticker = last_analysis.get("ticker", "").lower()
+
+    import re
+    has_ticker_pattern = bool(re.search(r'\d{4,6}(\.(SS|SZ|SH|HK))?', query))
+
+    # Explicit new analysis keywords + ticker = new analysis
+    new_analysis_keywords = ["analyze", "analyse", "analysis of", "what about", "look at"]
+    for kw in new_analysis_keywords:
+        if kw in query_lower and has_ticker_pattern:
+            return False
+
+    # Follow-up indicator keywords
+    followup_keywords = [
+        "why", "how", "what", "tell me more", "explain", "detail",
+        "which", "can you", "could you", "elaborate",
+        "risk", "debate", "bull", "bear", "sentiment",
+        "fundamental", "quant", "announcement", "social",
+        "compared", "versus", "support", "against",
+    ]
+    if any(kw in query_lower for kw in followup_keywords):
+        if not has_ticker_pattern:
+            return True
+
+    # Short query referencing the last ticker = follow-up
+    if last_ticker and last_ticker in query_lower:
+        if len(query.split()) < 15:
+            return True
+
+    return False
+
+
 # ── Page Layout ──
 
 st.title("Multi-Agent Investment Research System")
@@ -314,49 +354,3 @@ if query:
                     _render_analysis(result, ticker)
 
 
-def _is_followup_question(query: str, last_analysis: dict | None) -> bool:
-    """
-    Heuristic to detect if a query is a follow-up about the last analysis
-    rather than a new stock analysis request.
-    """
-    if not last_analysis:
-        return False
-
-    query_lower = query.lower()
-
-    # Explicit new analysis keywords
-    new_analysis_keywords = ["analyze", "analyse", "analysis of", "what about", "look at"]
-    # Check if query mentions a different ticker
-    last_ticker = last_analysis.get("ticker", "").lower()
-
-    # If query contains a stock code pattern (digits + exchange suffix), it's likely new
-    import re
-    has_ticker_pattern = bool(re.search(r'\d{4,6}(\.(SS|SZ|SH|HK))?', query))
-
-    # If query starts with analysis keywords and has a ticker, it's new
-    for kw in new_analysis_keywords:
-        if kw in query_lower and has_ticker_pattern:
-            return False
-
-    # Follow-up indicators
-    followup_keywords = [
-        "why", "how", "what", "tell me more", "explain", "detail",
-        "which", "can you", "could you", "elaborate",
-        "risk", "debate", "bull", "bear", "sentiment",
-        "fundamental", "quant", "announcement", "social",
-        "compared", "versus", "support", "against",
-    ]
-
-    # If query is short and uses follow-up language, it's a follow-up
-    if any(kw in query_lower for kw in followup_keywords):
-        # But not if it also has a new ticker
-        if not has_ticker_pattern:
-            return True
-
-    # If query references the last ticker, it could be either
-    if last_ticker and last_ticker in query_lower:
-        # Short questions about the same ticker are follow-ups
-        if len(query.split()) < 15:
-            return True
-
-    return False
