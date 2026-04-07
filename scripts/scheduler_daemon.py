@@ -15,9 +15,10 @@ Behavior:
 Configuration via .env:
   AUTO_RUN_SCHEDULE=true                  # required to spawn this at all
   RUN_ON_STARTUP=true                     # run once at daemon start
-  SCHEDULE_MODE=interval                  # interval | daily
+  SCHEDULE_MODE=daily                     # interval | daily
   SCHEDULE_INTERVAL_HOURS=24              # used when mode=interval
-  SCHEDULE_DAILY_TIME=17:30               # used when mode=daily (HH:MM 24h, local time)
+  SCHEDULE_DAILY_TIMES=08:30,13:00,20:00  # one or more HH:MM times, comma-separated
+                                          # (SCHEDULE_DAILY_TIME singular still works for back-compat)
   SCHEDULE_WEEKDAYS_ONLY=true             # skip weekends in daily mode
 
 Logs go to logs/scheduler.log.
@@ -70,6 +71,38 @@ def _bool_env(name: str, default: bool = False) -> bool:
     return val in ("1", "true", "yes", "on")
 
 
+def _parse_daily_times() -> list[tuple[int, int]]:
+    """
+    Parse comma-separated HH:MM times from SCHEDULE_DAILY_TIMES.
+    Falls back to SCHEDULE_DAILY_TIME (singular) for backward compat.
+    Returns sorted list of (hour, minute) tuples. Invalid entries are skipped.
+    """
+    raw = os.getenv("SCHEDULE_DAILY_TIMES")
+    if not raw:
+        raw = os.getenv("SCHEDULE_DAILY_TIME", "17:30")
+
+    times = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            hh, mm = part.split(":")
+            hh, mm = int(hh), int(mm)
+            if 0 <= hh <= 23 and 0 <= mm <= 59:
+                times.append((hh, mm))
+            else:
+                logger.warning("Skipping out-of-range time %r", part)
+        except (ValueError, AttributeError):
+            logger.warning("Skipping invalid time %r in SCHEDULE_DAILY_TIMES", part)
+
+    if not times:
+        logger.warning("No valid times parsed, defaulting to 17:30")
+        times = [(17, 30)]
+
+    return sorted(set(times))
+
+
 def compute_next_run(now: datetime) -> datetime:
     """Compute the next scheduled run time based on env config."""
     mode = os.getenv("SCHEDULE_MODE", "daily").strip().lower()
@@ -78,24 +111,22 @@ def compute_next_run(now: datetime) -> datetime:
         hours = float(os.getenv("SCHEDULE_INTERVAL_HOURS", "24"))
         return now + timedelta(hours=hours)
 
-    # Daily mode
-    daily_time = os.getenv("SCHEDULE_DAILY_TIME", "17:30").strip()
-    try:
-        hh, mm = map(int, daily_time.split(":"))
-    except (ValueError, AttributeError):
-        logger.warning("Invalid SCHEDULE_DAILY_TIME %r, defaulting to 17:30", daily_time)
-        hh, mm = 17, 30
+    # Daily mode: support one or more times per day
+    times = _parse_daily_times()
+    weekdays_only = _bool_env("SCHEDULE_WEEKDAYS_ONLY", default=True)
 
-    candidate = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-    if candidate <= now:
-        candidate += timedelta(days=1)
+    # Try today's remaining times first, then push forward day by day
+    for day_offset in range(0, 14):  # at most 2 weeks lookahead (handles long weekends)
+        day = now.date() + timedelta(days=day_offset)
+        if weekdays_only and day.weekday() >= 5:
+            continue
+        for hh, mm in times:
+            candidate = datetime(day.year, day.month, day.day, hh, mm, 0)
+            if candidate > now:
+                return candidate
 
-    # Skip weekends if requested
-    if _bool_env("SCHEDULE_WEEKDAYS_ONLY", default=True):
-        while candidate.weekday() >= 5:  # 5=Sat, 6=Sun
-            candidate += timedelta(days=1)
-
-    return candidate
+    # Should never happen, but return a safe fallback
+    return now + timedelta(hours=24)
 
 
 def run_analysis_once() -> int:
