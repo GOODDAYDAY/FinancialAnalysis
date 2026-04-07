@@ -8,9 +8,11 @@ automated stock analysis emails without setting up cron / Task Scheduler.
 Two configuration modes:
 
 1. JOB-BASED (preferred): config/schedule.json
-   Each job has its own time(s), queries, recipients, summary mode.
+   Top-level switches plus an array of jobs, each independent.
    Example schedule.json:
        {
+         "enabled": true,
+         "run_on_startup": true,
          "jobs": [
            {
              "name": "Morning A-Share Brief",
@@ -31,12 +33,26 @@ Two configuration modes:
          ]
        }
 
-2. ENV-BASED (fallback when schedule.json missing):
-   AUTO_RUN_SCHEDULE=true                  # required to spawn this at all
-   RUN_ON_STARTUP=true                     # run once at daemon start
-   SCHEDULE_DAILY_TIMES=08:30,13:00,20:00  # one or more HH:MM times
+   Top-level fields:
+     enabled         : master switch (default true). False -> daemon exits.
+     run_on_startup  : run all jobs once at daemon boot (default true)
+     jobs            : array of job objects
+
+   Per-job fields:
+     name            : display name (used in log + email subject prefix)
+     enabled         : per-job switch (default true)
+     times           : array of "HH:MM" 24h local times
+     weekdays_only   : skip Sat/Sun (default true)
+     queries         : array of natural-language queries (zh/en auto-detected)
+     recipients      : array of recipient emails for THIS job
+     summary_only    : send one batch email vs one per stock (default false)
+
+2. ENV-BASED (fallback when config/schedule.json is missing):
+   AUTO_RUN_SCHEDULE=true                  # master switch
+   RUN_ON_STARTUP=true                     # run once at boot
+   SCHEDULE_DAILY_TIMES=08:30,13:00,20:00  # one or more HH:MM
    SCHEDULE_WEEKDAYS_ONLY=true             # skip weekends
-   WATCHLIST=...                           # global watchlist
+   WATCHLIST=...                           # comma-separated queries
    QQ_EMAIL_RECIPIENTS=...                 # global recipients
 
 Logs go to logs/scheduler.log.
@@ -51,6 +67,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -118,6 +135,14 @@ class Job:
         return now + timedelta(hours=24)  # safety fallback
 
 
+@dataclass
+class ScheduleConfig:
+    """Top-level scheduler config: master switches + jobs."""
+    enabled: bool = True
+    run_on_startup: bool = True
+    jobs: list[Job] = field(default_factory=list)
+
+
 def _parse_time_string(s: str) -> tuple[int, int] | None:
     """Parse 'HH:MM' to (hour, minute), return None on invalid."""
     try:
@@ -144,34 +169,42 @@ def _parse_times_list(raw) -> list[tuple[int, int]]:
     return sorted(set(result))
 
 
-def load_jobs() -> list[Job]:
+def load_schedule_config() -> ScheduleConfig:
     """
-    Load job list. Tries config/schedule.json first; falls back to
-    a single env-var-based job using WATCHLIST + SCHEDULE_DAILY_TIMES.
+    Load scheduler config. Tries config/schedule.json first; falls back
+    to env-var-based single job (WATCHLIST + SCHEDULE_DAILY_TIMES).
+
+    Top-level switches `enabled` and `run_on_startup` may live in the
+    JSON. If absent, env vars AUTO_RUN_SCHEDULE and RUN_ON_STARTUP are
+    used as fallback (defaults: enabled=true, run_on_startup=true).
     """
     if SCHEDULE_FILE.exists():
-        return _load_jobs_from_file(SCHEDULE_FILE)
-    return _load_jobs_from_env()
+        return _load_schedule_from_file(SCHEDULE_FILE)
+    return _load_schedule_from_env()
 
 
-def _load_jobs_from_file(path: Path) -> list[Job]:
-    logger.info("Loading jobs from %s", path)
+def _load_schedule_from_file(path: Path) -> ScheduleConfig:
+    logger.info("Loading schedule from %s", path)
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
         logger.error("Failed to read %s: %s", path, e)
-        return []
+        return ScheduleConfig(enabled=False)
+
+    # Top-level switches: JSON wins over env vars; env vars are fallback.
+    enabled = bool(data.get("enabled", _bool_env("AUTO_RUN_SCHEDULE", default=True)))
+    run_on_startup = bool(data.get("run_on_startup", _bool_env("RUN_ON_STARTUP", default=True)))
 
     raw_jobs = data.get("jobs", [])
     if not isinstance(raw_jobs, list):
         logger.error("'jobs' must be a list")
-        return []
+        return ScheduleConfig(enabled=enabled, run_on_startup=run_on_startup)
 
     jobs: list[Job] = []
     for i, raw in enumerate(raw_jobs):
         if not isinstance(raw, dict):
-            logger.warning("Skipping non-dict entry at index %d", i)
+            logger.warning("Skipping non-dict job at index %d", i)
             continue
         if not raw.get("enabled", True):
             logger.info("Skipping disabled job: %s", raw.get("name", f"#{i}"))
@@ -204,11 +237,11 @@ def _load_jobs_from_file(path: Path) -> list[Job]:
             name, len(times), len(queries), len(recipients), weekdays_only,
         )
 
-    return jobs
+    return ScheduleConfig(enabled=enabled, run_on_startup=run_on_startup, jobs=jobs)
 
 
-def _load_jobs_from_env() -> list[Job]:
-    """Build a single job from env vars (back-compat)."""
+def _load_schedule_from_env() -> ScheduleConfig:
+    """Build a single-job ScheduleConfig from env vars (back-compat)."""
     logger.info("config/schedule.json not found, falling back to env-var config")
     raw_times = os.getenv("SCHEDULE_DAILY_TIMES") or os.getenv("SCHEDULE_DAILY_TIME", "17:30")
     times = _parse_times_list(raw_times)
@@ -218,14 +251,19 @@ def _load_jobs_from_env() -> list[Job]:
     raw_watchlist = os.getenv("WATCHLIST", "600519.SS")
     queries = [q.strip() for q in raw_watchlist.split(",") if q.strip()]
 
-    return [Job(
+    job = Job(
         name="env-default",
         times=times,
         queries=queries,
-        recipients=[],   # empty -> scheduled_analysis.py will use env QQ_EMAIL_RECIPIENTS
+        recipients=[],
         weekdays_only=_bool_env("SCHEDULE_WEEKDAYS_ONLY", default=True),
         summary_only=False,
-    )]
+    )
+    return ScheduleConfig(
+        enabled=_bool_env("AUTO_RUN_SCHEDULE", default=False),
+        run_on_startup=_bool_env("RUN_ON_STARTUP", default=True),
+        jobs=[job],
+    )
 
 
 # ─── Job dispatch ──────────────────────────────────────────────
@@ -285,27 +323,30 @@ def sleep_until(target: datetime):
 
 
 def main() -> int:
-    if not _bool_env("AUTO_RUN_SCHEDULE", default=False):
-        logger.info("AUTO_RUN_SCHEDULE is not enabled. Daemon exiting.")
-        return 0
-
     logger.info("=" * 60)
     logger.info("Scheduler daemon starting (PID %d)", os.getpid())
     logger.info("Log file: %s", LOG_FILE)
     logger.info("=" * 60)
 
-    jobs = load_jobs()
+    schedule = load_schedule_config()
+
+    if not schedule.enabled:
+        logger.info("Scheduler disabled (set 'enabled': true in config/schedule.json). Daemon exiting.")
+        return 0
+
+    jobs = schedule.jobs
     if not jobs:
         logger.error("No jobs configured. Exiting.")
         return 1
-    logger.info("Loaded %d job(s)", len(jobs))
+    logger.info("Loaded %d job(s) | enabled=%s | run_on_startup=%s",
+                len(jobs), schedule.enabled, schedule.run_on_startup)
 
-    if _bool_env("RUN_ON_STARTUP", default=True):
-        logger.info("RUN_ON_STARTUP enabled — running all jobs once immediately")
+    if schedule.run_on_startup:
+        logger.info("run_on_startup enabled — running all jobs once immediately")
         for job in jobs:
             run_job(job)
     else:
-        logger.info("RUN_ON_STARTUP disabled — waiting for first scheduled time")
+        logger.info("run_on_startup disabled — waiting for first scheduled time")
 
     while True:
         try:

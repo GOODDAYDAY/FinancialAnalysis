@@ -84,23 +84,18 @@ else
 fi
 echo
 
-# Step 5: Optionally start scheduler daemon in background
-# Read AUTO_RUN_SCHEDULE from .env without polluting current shell
-AUTO_RUN_SCHEDULE=$(grep -E '^AUTO_RUN_SCHEDULE=' "$PROJECT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d ' \r"')
-if [ "${AUTO_RUN_SCHEDULE,,}" = "true" ]; then
-    echo "[5/6] Starting scheduler daemon in background..."
-    mkdir -p logs
-    nohup uv run --no-sync python scripts/scheduler_daemon.py > logs/scheduler-stdout.log 2>&1 &
-    SCHEDULER_PID=$!
-    echo "     Daemon started (PID $SCHEDULER_PID). Logs: logs/scheduler.log"
-    echo
-    # Trap to cleanup daemon on exit
-    trap "echo 'Stopping scheduler daemon...'; kill $SCHEDULER_PID 2>/dev/null || true" EXIT
-else
-    echo "[5/6] AUTO_RUN_SCHEDULE not enabled - skipping scheduler daemon."
-    echo "     To enable: set AUTO_RUN_SCHEDULE=true in .env"
-    echo
-fi
+# Step 5: Start scheduler daemon
+# Daemon always launches; it self-disables via config/schedule.json
+# "enabled": false (or env AUTO_RUN_SCHEDULE=false as fallback).
+echo "[5/6] Starting scheduler daemon in background..."
+mkdir -p logs
+nohup uv run --no-sync python scripts/scheduler_daemon.py > logs/scheduler-stdout.log 2>&1 &
+SCHEDULER_PID=$!
+echo "     Daemon started (PID $SCHEDULER_PID). Logs: logs/scheduler.log"
+echo "     To disable: set \"enabled\": false in config/schedule.json"
+echo
+# Trap to cleanup daemon on exit
+trap "echo 'Stopping scheduler daemon...'; kill $SCHEDULER_PID 2>/dev/null || true" EXIT
 
 # Step 6: Launch Streamlit
 echo "[6/6] Starting Streamlit application..."

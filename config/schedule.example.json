@@ -1,5 +1,8 @@
 {
-  "_comment": "Schedule configuration. Each job is independent: own time(s), queries, recipients. Copy this file to config/schedule.json and edit. Time is local time (24h HH:MM). Language is auto-detected per query — Chinese queries produce Chinese reports.",
+  "_comment": "Schedule configuration. Top-level: 'enabled' is the master switch, 'run_on_startup' decides whether all jobs run once when the daemon starts. Each job is independent: its own time(s), queries, recipients. Copy this file to config/schedule.json and edit. Time is local time (24h HH:MM). Language is auto-detected per query — Chinese queries produce Chinese reports.",
+
+  "enabled": true,
+  "run_on_startup": true,
 
   "jobs": [
     {

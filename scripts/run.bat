@@ -106,22 +106,14 @@ if not exist "%PROJECT_DIR%\.env" (
 )
 echo.
 
-REM -------- Step 5: Optionally start scheduler daemon --------
-REM Read AUTO_RUN_SCHEDULE from .env without polluting current shell
-set AUTO_RUN_SCHEDULE=
-for /f "usebackq tokens=1,* delims==" %%a in ("%PROJECT_DIR%\.env") do (
-    if /i "%%a"=="AUTO_RUN_SCHEDULE" set AUTO_RUN_SCHEDULE=%%b
-)
-if /i "!AUTO_RUN_SCHEDULE!"=="true" (
-    echo [5/6] Starting scheduler daemon in background...
-    start "AI Investment Scheduler" /MIN cmd /c "uv run --no-sync python scripts\scheduler_daemon.py"
-    echo      Daemon started. Check logs\scheduler.log for progress.
-    echo.
-) else (
-    echo [5/6] AUTO_RUN_SCHEDULE not enabled — skipping scheduler daemon.
-    echo      To enable: set AUTO_RUN_SCHEDULE=true in .env
-    echo.
-)
+REM -------- Step 5: Start scheduler daemon --------
+REM Daemon always launches; it self-disables via config/schedule.json
+REM "enabled": false (or env AUTO_RUN_SCHEDULE=false as fallback).
+echo [5/6] Starting scheduler daemon in background...
+start "AI Investment Scheduler" /MIN cmd /c "uv run --no-sync python scripts\scheduler_daemon.py"
+echo      Daemon started. Check logs\scheduler.log for progress.
+echo      To disable: set "enabled": false in config/schedule.json
+echo.
 
 REM -------- Step 6: Launch Streamlit --------
 echo [6/6] Starting Streamlit application...
