@@ -75,7 +75,7 @@ REM -------- Step 4: Check / create .env --------
 if not exist "%PROJECT_DIR%\.env" (
     echo [4/5] .env file not found.
     echo.
-    echo Please enter your DeepSeek API key (get one at https://platform.deepseek.com):
+    echo Please enter your DeepSeek API key ^(get one at https://platform.deepseek.com^):
     set /p DEEPSEEK_KEY="API Key: "
     if "!DEEPSEEK_KEY!"=="" (
         echo [ERROR] API key is required to run this system.
