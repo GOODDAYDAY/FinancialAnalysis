@@ -65,14 +65,42 @@ def parse_args():
 
 
 def get_watchlist(arg_tickers: str | None) -> list[str]:
-    """Resolve watchlist from CLI arg, env var, or default."""
+    """
+    Resolve watchlist from CLI arg, env var, or default.
+
+    Each entry can be either:
+      - A bare ticker symbol (e.g. "600519.SS", "AAPL") — wrapped as "Analyze {ticker}"
+      - A full natural-language query (e.g. "分析贵州茅台", "Tell me about TSLA")
+
+    The orchestrator will detect the language of each query and emit
+    a report in the matching language.
+
+    Comma is the separator. To use a comma inside a query, escape it as \\,
+    or use a different separator by setting WATCHLIST_SEPARATOR in .env.
+    """
     if arg_tickers:
         raw = arg_tickers
     else:
         raw = os.getenv("WATCHLIST", "600519.SS")
 
-    tickers = [t.strip() for t in raw.split(",") if t.strip()]
-    return tickers
+    sep = os.getenv("WATCHLIST_SEPARATOR", ",")
+    items = [t.strip() for t in raw.split(sep) if t.strip()]
+    return items
+
+
+def _build_query_from_entry(entry: str) -> str:
+    """
+    Convert a watchlist entry into a query string.
+
+    If the entry looks like a bare ticker (contains no spaces and matches
+    a ticker-ish pattern), wrap it as "Analyze {entry}".
+    Otherwise treat it as a raw user query.
+    """
+    import re
+    # Bare ticker heuristic: no spaces, matches AAPL or 600519.SS or 0700.HK style
+    if " " not in entry and re.fullmatch(r"[A-Za-z0-9._-]+", entry):
+        return f"Analyze {entry}"
+    return entry
 
 
 def main():
@@ -108,29 +136,31 @@ def main():
     results = []
     failed = []
 
-    for ticker in watchlist:
+    for entry in watchlist:
+        query = _build_query_from_entry(entry)
         logger.info("=" * 60)
-        logger.info("Analyzing %s...", ticker)
+        logger.info("Analyzing entry: %s", entry)
+        logger.info("  Built query: %s", query)
         try:
-            query = f"Analyze {ticker}"
             result = run_analysis(query)
 
             if result.get("intent") != "stock_query":
-                logger.warning("Skipping %s: intent=%s", ticker, result.get("intent"))
-                failed.append((ticker, f"intent={result.get('intent')}"))
+                logger.warning("Skipping %s: intent=%s", entry, result.get("intent"))
+                failed.append((entry, f"intent={result.get('intent')}"))
                 continue
 
             errors = result.get("errors", [])
             if errors:
-                logger.warning("%s had errors: %s", ticker, errors)
+                logger.warning("%s had errors: %s", entry, errors)
 
             rec = result.get("recommendation", {}).get("recommendation", "?")
-            logger.info("%s: %s", ticker, rec.upper())
+            lang = result.get("language", "en")
+            logger.info("%s: %s (lang=%s)", entry, rec.upper(), lang)
             results.append(result)
 
         except Exception as e:
-            logger.exception("Failed to analyze %s: %s", ticker, e)
-            failed.append((ticker, str(e)))
+            logger.exception("Failed to analyze %s: %s", entry, e)
+            failed.append((entry, str(e)))
 
     if not results:
         logger.error("No successful analysis results. Aborting email.")

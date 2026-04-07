@@ -3,6 +3,7 @@
 import logging
 from backend.llm_client import call_llm_structured
 from backend.state import SentimentOutput
+from backend.utils.language import language_directive
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +12,7 @@ def sentiment_node(state: dict) -> dict:
     """F-09, F-10: Sentiment scoring with explainable reasoning chain."""
     ticker = state.get("ticker", "")
     articles = state.get("news_articles", [])
+    language = state.get("language", "en")
 
     if not articles:
         logger.warning("No news articles available for sentiment analysis")
@@ -42,7 +44,7 @@ def sentiment_node(state: dict) -> dict:
         f"For overall_label, use: bullish, bearish, or neutral.\n"
         f"For overall_score, use -1.0 (very bearish) to +1.0 (very bullish).\n"
         f"For article_scores, provide a list of dicts with 'title' and 'score' for each article."
-    )
+    ) + language_directive(language)
 
     result = call_llm_structured(
         user_prompt=f"Analyze sentiment for {ticker} based on these articles:\n{article_text}",

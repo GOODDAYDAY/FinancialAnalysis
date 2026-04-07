@@ -10,6 +10,7 @@ import logging
 from backend.llm_client import call_llm_structured
 from backend.state import DebateArgument
 from backend.config import settings
+from backend.utils.language import language_directive
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,8 @@ def debate_node(state: dict) -> dict:
     current_round = state.get("debate_round", 0) + 1
     prior_debate = state.get("debate_history", [])
     analysis_context = _build_analysis_context(state)
+    language = state.get("language", "en")
+    lang_dir = language_directive(language)
 
     logger.info("Debate Round %d for %s", current_round, ticker)
 
@@ -112,7 +115,7 @@ def debate_node(state: dict) -> dict:
         f"- Acknowledge weaknesses but explain why they are manageable\n"
         f"- In round 2+, directly address the Bear's previous arguments\n"
         f"- Provide exactly 3 key points and supporting evidence"
-    )
+    ) + lang_dir
 
     bull_result = call_llm_structured(
         user_prompt=f"Round {current_round}: Present your BULLISH case for {ticker}.\n\n{analysis_context}\n{prior_text}",
@@ -132,7 +135,7 @@ def debate_node(state: dict) -> dict:
         f"- Directly challenge the Bull's arguments with counter-evidence\n"
         f"- Highlight risks, red flags, and uncertainties\n"
         f"- Provide exactly 3 key points, evidence, and rebuttals to the Bull"
-    )
+    ) + lang_dir
 
     bear_prompt = (
         f"Round {current_round}: Present your BEARISH case for {ticker}.\n\n"

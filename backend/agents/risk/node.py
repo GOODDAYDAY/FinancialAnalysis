@@ -3,6 +3,7 @@
 import logging
 from backend.llm_client import call_llm_structured
 from backend.state import RiskOutput
+from backend.utils.language import language_directive
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,7 @@ def risk_node(state: dict) -> dict:
     market_data = state.get("market_data", {})
     sentiment = state.get("sentiment", {})
     fundamental = state.get("fundamental", {})
+    language = state.get("language", "en")
 
     system_prompt = (
         f"You are a financial risk assessment expert. Evaluate the investment risk for {ticker} "
@@ -21,7 +23,7 @@ def risk_node(state: dict) -> dict:
         f"(litigation, regulatory, key-person), and liquidity risk.\n"
         f"Risk score: 1 (lowest risk) to 10 (highest risk).\n"
         f"Risk level: low (1-3), medium (4-6), high (7-8), critical (9-10)."
-    )
+    ) + language_directive(language)
 
     data_summary = (
         f"Analyze risk for {ticker}:\n"

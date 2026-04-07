@@ -3,6 +3,7 @@
 import logging
 from backend.llm_client import call_llm_structured
 from backend.state import RecommendationOutput
+from backend.utils.language import language_directive
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ def advisory_node(state: dict) -> dict:
     grid = state.get("grid_strategy", {})
     risk = state.get("risk", {})
     debate_history = state.get("debate_history", [])
+    language = state.get("language", "en")
 
     # Build debate summary
     debate_text = ""
@@ -47,7 +49,7 @@ def advisory_node(state: dict) -> dict:
         f"What points were conceded vs contested?\n\n"
         f"Provide a clear recommendation (buy/hold/sell), confidence level (0-1), "
         f"and investment horizon (short-term/medium-term/long-term)."
-    )
+    ) + language_directive(language)
 
     user_prompt = (
         f"Generate investment recommendation for {ticker}:\n\n"

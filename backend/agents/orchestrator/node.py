@@ -2,6 +2,7 @@
 
 import logging
 from backend.llm_client import call_llm_structured
+from backend.utils.language import detect_language
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -22,9 +23,10 @@ class IntentResult(BaseModel):
 
 
 def orchestrator_node(state: dict) -> dict:
-    """F-01, F-02, F-03: Parse intent, extract ticker, check for injection."""
+    """F-01, F-02, F-03: Parse intent, extract ticker, check for injection, detect language."""
     query = state.get("user_query", "")
-    logger.info("Orchestrator processing query: %s", query[:100])
+    language = detect_language(query)
+    logger.info("Orchestrator processing query: %s (language=%s)", query[:100], language)
 
     # F-14: Prompt injection check (runs before LLM call)
     query_lower = query.lower()
@@ -34,6 +36,7 @@ def orchestrator_node(state: dict) -> dict:
             return {
                 "intent": "rejected",
                 "ticker": "",
+                "language": language,
                 "reasoning_chain": [{"agent": "orchestrator", "action": "rejected", "reason": "prompt injection detected"}],
                 "errors": [{"agent": "orchestrator", "error": "Prompt injection detected"}],
             }
@@ -58,10 +61,12 @@ def orchestrator_node(state: dict) -> dict:
     return {
         "intent": result.intent,
         "ticker": ticker,
+        "language": language,
         "reasoning_chain": [{
             "agent": "orchestrator",
             "intent": result.intent,
             "ticker": ticker,
+            "language": language,
             "explanation": result.explanation,
         }],
     }

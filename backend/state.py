@@ -108,6 +108,7 @@ class ResearchState(TypedDict, total=False):
     user_query: str
     ticker: str
     intent: str  # "stock_query" | "chitchat" | "out_of_scope"
+    language: str  # "zh" | "en" — auto-detected from user_query
 
     # Agent outputs (stored as plain dicts)
     market_data: dict

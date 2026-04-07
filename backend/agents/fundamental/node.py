@@ -3,6 +3,7 @@
 import logging
 from backend.llm_client import call_llm_structured
 from backend.state import FundamentalOutput
+from backend.utils.language import language_directive
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +12,7 @@ def fundamental_node(state: dict) -> dict:
     """F-11, F-12: Financial ratio analysis with peer comparison."""
     ticker = state.get("ticker", "")
     market_data = state.get("market_data", {})
+    language = state.get("language", "en")
 
     if not market_data:
         default = FundamentalOutput(summary="Insufficient data for fundamental analysis.")
@@ -32,7 +34,7 @@ def fundamental_node(state: dict) -> dict:
         f"price relative to 52-week range, and any red flags.\n"
         f"Compare with typical sector peers if applicable.\n"
         f"Health score: 1 (very unhealthy) to 10 (excellent health)."
-    )
+    ) + language_directive(language)
 
     user_prompt = (
         f"Analyze fundamentals for {ticker}:\n"

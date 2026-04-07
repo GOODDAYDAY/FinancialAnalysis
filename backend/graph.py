@@ -138,6 +138,7 @@ def run_analysis(query: str) -> dict:
         "user_query": query,
         "ticker": "",
         "intent": "",
+        "language": "en",
         "market_data": {},
         "news_articles": [],
         "announcements": [],

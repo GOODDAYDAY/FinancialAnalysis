@@ -8,6 +8,7 @@ detects a follow-up question and prior analysis exists.
 
 import logging
 from backend.llm_client import call_llm
+from backend.utils.language import detect_language, language_directive
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,11 @@ def handle_followup(question: str, prior_state: dict) -> str:
         A natural language answer string
     """
     ticker = prior_state.get("ticker", "unknown")
-    logger.info("Follow-up question for %s: %s", ticker, question[:100])
+    # Language: prefer the question's language; fall back to the prior analysis language
+    language = detect_language(question)
+    if language == "en":
+        language = prior_state.get("language", "en")
+    logger.info("Follow-up question for %s: %s (language=%s)", ticker, question[:100], language)
 
     # Build comprehensive context from all agent outputs
     context = _build_full_context(prior_state)
@@ -48,7 +53,7 @@ def handle_followup(question: str, prior_state: dict) -> str:
         f"Cite specific numbers and agent findings. "
         f"If the question asks about something not covered in the analysis, say so.\n\n"
         f"Always include: 'This is for educational purposes only. Not financial advice.'"
-    )
+    ) + language_directive(language)
 
     answer = call_llm(
         user_prompt=f"Question: {question}\n\n{context}",
