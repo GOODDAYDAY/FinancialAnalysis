@@ -20,6 +20,7 @@ from backend.agents.social_sentiment import social_sentiment_node
 from backend.agents.sentiment import sentiment_node
 from backend.agents.fundamental import fundamental_node
 from backend.agents.quant import quant_node
+from backend.agents.grid_strategy import grid_strategy_node
 from backend.agents.debate import debate_node, should_continue_debate
 from backend.agents.risk import risk_node
 from backend.agents.advisory import advisory_node
@@ -68,6 +69,7 @@ def build_graph():
     graph.add_node("sentiment", _safe(sentiment_node, "sentiment"))
     graph.add_node("fundamental", _safe(fundamental_node, "fundamental"))
     graph.add_node("quant", _safe(quant_node, "quant"))
+    graph.add_node("grid_strategy", _safe(grid_strategy_node, "grid_strategy"))
     graph.add_node("debate", _safe(debate_node, "debate"))
     graph.add_node("risk", _safe(risk_node, "risk"))
     graph.add_node("advisory", _safe(advisory_node, "advisory"))
@@ -94,9 +96,10 @@ def build_graph():
     graph.add_edge("social_sentiment", "sentiment")
     graph.add_edge("sentiment", "fundamental")
 
-    # Quant → Debate: quant provides algorithmic evidence for the debate
+    # Quant + Grid Strategy → Debate: algorithmic evidence and trading strategies
     graph.add_edge("fundamental", "quant")
-    graph.add_edge("quant", "debate")
+    graph.add_edge("quant", "grid_strategy")
+    graph.add_edge("grid_strategy", "debate")
 
     # Debate self-loop
     graph.add_conditional_edges(
@@ -143,6 +146,7 @@ def run_analysis(query: str) -> dict:
         "sentiment": {},
         "fundamental": {},
         "quant": {},
+        "grid_strategy": {},
         "risk": {},
         "debate_history": [],
         "debate_round": 0,

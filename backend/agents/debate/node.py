@@ -21,6 +21,7 @@ def _build_analysis_context(state: dict) -> str:
     sentiment = state.get("sentiment", {})
     fundamental = state.get("fundamental", {})
     quant = state.get("quant", {})
+    grid = state.get("grid_strategy", {})
     announcements = state.get("announcements", [])
     social = state.get("social_sentiment", {})
 
@@ -37,6 +38,18 @@ def _build_analysis_context(state: dict) -> str:
             icon = "+" if sig["type"] == "bullish" else "-" if sig["type"] == "bearish" else "="
             quant_text += f"  [{icon}] {sig['name']}: {sig['detail']} (weight: {sig['weight']})\n"
         quant_text += f"  Summary: {quant.get('summary', '')}\n"
+
+    # Build grid strategy section
+    grid_text = ""
+    if grid and grid.get("score") is not None:
+        grid_text = (
+            f"\nGRID STRATEGY ANALYSIS (algorithmic):\n"
+            f"  Suitability: {grid.get('score', 0)}/100 ({grid.get('verdict', 'N/A')})\n"
+            f"  Annual Volatility: {grid.get('annual_volatility_pct', 0)}%\n"
+            f"  Best Strategy: {grid.get('best_strategy_name', 'none')}\n"
+            f"  Best Estimated Monthly Return: {grid.get('best_monthly_return_pct', 0)}%\n"
+            f"  Reasons: {grid.get('reasons', [])}\n"
+        )
 
     return (
         f"=== Analysis Data for {ticker} ===\n\n"
@@ -55,7 +68,8 @@ def _build_analysis_context(state: dict) -> str:
         f"  Health Score: {fundamental.get('health_score', 'N/A')}/10\n"
         f"  Red Flags: {fundamental.get('red_flags', [])}\n"
         f"  Summary: {fundamental.get('summary', 'N/A')}\n"
-        f"{quant_text}\n"
+        f"{quant_text}"
+        f"{grid_text}\n"
         f"COMPANY ANNOUNCEMENTS ({len(announcements)} items):\n"
         + ("".join(f"  - [{a.get('date','')}] {a.get('title','')[:80]}\n" for a in announcements[:5]) if announcements else "  No announcements available.\n")
         + f"\nSOCIAL SENTIMENT (Eastmoney):\n"

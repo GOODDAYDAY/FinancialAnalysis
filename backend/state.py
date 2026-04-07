@@ -124,6 +124,9 @@ class ResearchState(TypedDict, total=False):
     # Quant
     quant: dict
 
+    # Grid Strategy
+    grid_strategy: dict
+
     # Debate
     debate_history: Annotated[list[dict], operator.add]
     debate_round: int

@@ -29,6 +29,7 @@ def _render_analysis(result: dict, ticker: str):
     sentiment = result.get("sentiment", {})
     fundamental = result.get("fundamental", {})
     quant = result.get("quant", {})
+    grid = result.get("grid_strategy", {})
     risk = result.get("risk", {})
     debate_history = result.get("debate_history", [])
     errors = result.get("errors", [])
@@ -128,6 +129,59 @@ def _render_analysis(result: dict, ticker: str):
             for sig in quant.get("signals", []):
                 icon = "[+]" if sig["type"] == "bullish" else "[-]" if sig["type"] == "bearish" else "[=]"
                 st.write(f"  {icon} **{sig['name']}**: {sig['detail']} (weight: {sig['weight']})")
+
+    # Grid Strategy
+    if grid and grid.get("strategies"):
+        with st.expander("Grid Trading Strategies", expanded=True):
+            gscore = grid.get("score", 0)
+            gverdict = grid.get("verdict", "N/A")
+            gcolor = "green" if gscore >= 70 else "orange" if gscore >= 50 else "red"
+            st.markdown(f"**Suitability: :{gcolor}[{gscore}/100]** ({gverdict})")
+            st.write(f"Annual Volatility: {grid.get('annual_volatility_pct', 0)}% | "
+                      f"Daily Range: {grid.get('daily_range_pct', 0)}%")
+
+            if grid.get("reasons"):
+                st.write("**Suitability Analysis:**")
+                for r in grid["reasons"]:
+                    st.write(f"  - {r}")
+
+            best_name = grid.get("best_strategy_name")
+            if best_name:
+                st.success(f"**Recommended Strategy:** {best_name} "
+                            f"(estimated {grid.get('best_monthly_return_pct', 0)}%/month)")
+
+            st.write("**All Strategy Variants:**")
+            for s in grid["strategies"]:
+                is_best = s["name"] == best_name
+                title = f"{'★ ' if is_best else ''}{s['name']} ({s['horizon']})"
+                with st.container():
+                    st.markdown(f"#### {title}")
+                    st.caption(s.get("description", ""))
+
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Price Range", f"{s['lower_price']} - {s['upper_price']}")
+                        st.metric("Grid Count", s["grid_count"])
+                    with col2:
+                        st.metric("Grid Step", f"{s['grid_step']} ({s['grid_step_pct']}%)")
+                        st.metric("Shares per Grid", f"{s['shares_per_grid']}")
+                    with col3:
+                        st.metric("Capital Required", f"{s['capital_required']:.0f} CNY")
+                        profit_color = "normal" if s["profit_per_cycle"] > 0 else "inverse"
+                        st.metric("Profit per Cycle",
+                                   f"{s['profit_per_cycle']} CNY",
+                                   f"{s['profit_per_cycle_pct']}% / cycle",
+                                   delta_color=profit_color)
+
+                    st.write(f"- Fees per cycle: {s['fees_per_cycle']} CNY")
+                    st.write(f"- Break-even price move: {s['break_even_move_pct']}%")
+                    st.write(f"- Estimated cycles per month: {s['estimated_cycles_per_month']}")
+                    st.write(f"- **Estimated monthly return: {s['estimated_monthly_return_pct']}%**")
+
+                    if s.get("caveats"):
+                        for c in s["caveats"]:
+                            st.warning(c)
+                    st.divider()
 
     # Sentiment Details
     with st.expander("Sentiment Analysis"):

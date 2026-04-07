@@ -70,6 +70,7 @@ def _build_full_context(state: dict) -> str:
     sent = state.get("sentiment", {})
     fund = state.get("fundamental", {})
     quant = state.get("quant", {})
+    grid = state.get("grid_strategy", {})
     debate = state.get("debate_history", [])
     risk = state.get("risk", {})
     rec = state.get("recommendation", {})
@@ -158,6 +159,32 @@ def _build_full_context(state: dict) -> str:
             icon = "+" if sig["type"] == "bullish" else "-" if sig["type"] == "bearish" else "="
             quant_text += f"  [{icon}] {sig['name']}: {sig['detail']}\n"
         sections.append(quant_text)
+
+    # Grid Strategy
+    if grid and grid.get("strategies"):
+        grid_text = (
+            f"=== GRID TRADING STRATEGY ===\n"
+            f"Suitability: {grid.get('score', 'N/A')}/100 ({grid.get('verdict', 'N/A')})\n"
+            f"Annual Volatility: {grid.get('annual_volatility_pct', 'N/A')}%\n"
+            f"Best Strategy: {grid.get('best_strategy_name', 'none')} "
+            f"(estimated {grid.get('best_monthly_return_pct', 0)}%/month)\n"
+            f"Suitability Reasons: {grid.get('reasons', [])}\n"
+        )
+        for s in grid.get("strategies", []):
+            grid_text += (
+                f"\n  [{s['name']}] ({s['horizon']})\n"
+                f"    Range: {s['lower_price']} - {s['upper_price']}, "
+                f"{s['grid_count']} grids, step {s['grid_step']} ({s['grid_step_pct']}%)\n"
+                f"    {s['shares_per_grid']} shares/grid, "
+                f"capital {s['capital_required']} yuan\n"
+                f"    Profit/cycle: {s['profit_per_cycle']} yuan ({s['profit_per_cycle_pct']}%) "
+                f"after {s['fees_per_cycle']} fees\n"
+                f"    Est. {s['estimated_cycles_per_month']} cycles/month, "
+                f"~{s['estimated_monthly_return_pct']}%/month\n"
+            )
+            if s.get("caveats"):
+                grid_text += f"    Caveats: {s['caveats']}\n"
+        sections.append(grid_text)
 
     # Debate
     if debate:

@@ -14,6 +14,7 @@ def advisory_node(state: dict) -> dict:
     sentiment = state.get("sentiment", {})
     fundamental = state.get("fundamental", {})
     quant = state.get("quant", {})
+    grid = state.get("grid_strategy", {})
     risk = state.get("risk", {})
     debate_history = state.get("debate_history", [])
 
@@ -67,6 +68,11 @@ def advisory_node(state: dict) -> dict:
         f"Quant Score: {quant.get('score', 'N/A')}/100\n"
         f"Verdict: {quant.get('verdict', 'N/A')}\n"
         f"Signals: {[s['name'] + '(' + s['type'] + ')' for s in quant.get('signals', [])]}\n\n"
+        f"--- GRID STRATEGY (algorithmic) ---\n"
+        f"Suitability: {grid.get('score', 'N/A')}/100 ({grid.get('verdict', 'N/A')})\n"
+        f"Annual Volatility: {grid.get('annual_volatility_pct', 'N/A')}%\n"
+        f"Best Strategy: {grid.get('best_strategy_name', 'none')}\n"
+        f"Best Monthly Return Estimate: {grid.get('best_monthly_return_pct', 0)}%\n\n"
         f"--- RISK ---\n"
         f"Risk Score: {risk.get('risk_score', 'N/A')}/10\n"
         f"Level: {risk.get('risk_level', 'N/A')}\n"
