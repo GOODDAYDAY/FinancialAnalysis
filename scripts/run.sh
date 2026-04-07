@@ -45,11 +45,8 @@ fi
 echo
 
 # Step 3: Install dependencies
-echo "[3/5] Checking dependencies..."
-if ! uv pip install -r requirements.txt --quiet 2>/dev/null; then
-    echo "     Installing dependencies (this may take a few minutes)..."
-    uv pip install -r requirements.txt
-fi
+echo "[3/5] Installing/syncing dependencies (first run takes a few minutes)..."
+uv pip install -r requirements.txt
 echo "     Dependencies ready."
 echo
 
@@ -95,4 +92,4 @@ echo " Open your browser at: http://localhost:8501"
 echo " Press Ctrl+C in this terminal to stop the server."
 echo "============================================================"
 echo
-uv run streamlit run frontend/app.py --server.port=8501
+uv run --no-sync streamlit run frontend/app.py --server.port=8501

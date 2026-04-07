@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 REM ============================================================
 REM Multi-Agent Investment Research - Zero-dependency launcher
 REM Works on Windows with NOTHING installed:
@@ -60,16 +61,12 @@ if not exist "%PROJECT_DIR%\.venv" (
 echo.
 
 REM -------- Step 3: Install dependencies --------
-echo [3/5] Checking dependencies...
-uv pip install -r requirements.txt --quiet 2>nul
+echo [3/5] Installing/syncing dependencies (first run takes a few minutes)...
+uv pip install -r requirements.txt
 if errorlevel 1 (
-    echo      Installing dependencies (this may take a few minutes)...
-    uv pip install -r requirements.txt
-    if errorlevel 1 (
-        echo [ERROR] Failed to install dependencies.
-        pause
-        exit /b 1
-    )
+    echo [ERROR] Failed to install dependencies.
+    pause
+    exit /b 1
 )
 echo      Dependencies ready.
 echo.
@@ -117,6 +114,6 @@ echo  Open your browser at: http://localhost:8501
 echo  Press Ctrl+C in this window to stop the server.
 echo ============================================================
 echo.
-uv run streamlit run frontend/app.py --server.port=8501 --server.headless=true
+uv run --no-sync streamlit run frontend/app.py --server.port=8501 --server.headless=true
 
 endlocal

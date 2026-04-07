@@ -1,0 +1,12 @@
+# Force CRLF line endings for Windows batch and PowerShell scripts.
+# Without this, git on Linux/macOS may convert them to LF, which makes
+# Windows cmd.exe fail to parse multi-line if/for blocks.
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# Force LF for shell scripts (Linux requires LF)
+*.sh        text eol=lf
+
+# Default for other text files: auto
+*           text=auto
