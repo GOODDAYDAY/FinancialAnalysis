@@ -42,35 +42,3 @@ def get_mock_market_data(ticker: str) -> MarketDataResult:
     )
 
 
-def get_mock_news(ticker: str) -> list[dict]:
-    """Return mock news articles for a given ticker."""
-    return [
-        {
-            "title": f"{ticker} Reports Strong Quarterly Earnings, Beats Analyst Expectations",
-            "source": "Mock Financial Times",
-            "url": "", "published": "2026-04-05",
-            "summary": f"{ticker} reported quarterly earnings that exceeded Wall Street expectations.",
-            "relevance_score": 0.9,
-        },
-        {
-            "title": f"Analysts Upgrade {ticker} on AI Growth Potential",
-            "source": "Mock Reuters",
-            "url": "", "published": "2026-04-04",
-            "summary": f"Several major analysts have upgraded {ticker} citing AI and cloud potential.",
-            "relevance_score": 0.85,
-        },
-        {
-            "title": f"Market Concerns Over {ticker} Regulatory Challenges",
-            "source": "Mock Bloomberg",
-            "url": "", "published": "2026-04-03",
-            "summary": f"Regulatory scrutiny intensifies for {ticker} as new legislation may impact operations.",
-            "relevance_score": 0.7,
-        },
-        {
-            "title": f"{ticker} Announces Major Product Launch at Annual Conference",
-            "source": "Mock CNBC",
-            "url": "", "published": "2026-04-02",
-            "summary": f"{ticker} unveiled its latest product line, receiving positive market reception.",
-            "relevance_score": 0.65,
-        },
-    ]
