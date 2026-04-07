@@ -1,0 +1,44 @@
+{
+  "_comment": "Schedule configuration. Each job is independent: own time(s), queries, recipients. Copy this file to config/schedule.json and edit. Time is local time (24h HH:MM). Language is auto-detected per query — Chinese queries produce Chinese reports.",
+
+  "jobs": [
+    {
+      "name": "Morning A-Share Brief",
+      "enabled": true,
+      "times": ["08:30"],
+      "weekdays_only": true,
+      "queries": [
+        "分析600519.SS",
+        "分析比亚迪",
+        "分析宁德时代"
+      ],
+      "recipients": ["alice@qq.com"],
+      "summary_only": false
+    },
+    {
+      "name": "Midday Tech Watch",
+      "enabled": true,
+      "times": ["13:00"],
+      "weekdays_only": true,
+      "queries": [
+        "Analyze AAPL",
+        "Analyze MSFT",
+        "Analyze NVDA"
+      ],
+      "recipients": ["bob@gmail.com", "tech-team@example.com"],
+      "summary_only": true
+    },
+    {
+      "name": "Evening Wrap (mixed languages)",
+      "enabled": true,
+      "times": ["20:00"],
+      "weekdays_only": false,
+      "queries": [
+        "分析600519.SS",
+        "Analyze TSLA"
+      ],
+      "recipients": ["alice@qq.com", "bob@gmail.com"],
+      "summary_only": false
+    }
+  ]
+}

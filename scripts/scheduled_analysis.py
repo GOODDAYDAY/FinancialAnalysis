@@ -49,7 +49,19 @@ def parse_args():
         "--tickers",
         type=str,
         default=None,
-        help="Comma-separated tickers to analyze. Overrides WATCHLIST env var.",
+        help="Comma-separated tickers/queries to analyze. Overrides WATCHLIST env var.",
+    )
+    parser.add_argument(
+        "--recipients",
+        type=str,
+        default=None,
+        help="Comma-separated recipient emails. Overrides QQ_EMAIL_RECIPIENTS env var.",
+    )
+    parser.add_argument(
+        "--job-name",
+        type=str,
+        default=None,
+        help="Job display name (used in log + email subject prefix).",
     )
     parser.add_argument(
         "--dry-run",
@@ -111,6 +123,9 @@ def main():
     from backend.notification import send_email, EmailConfig
     from backend.notification.templates import render_analysis_email, render_batch_summary
 
+    job_label = args.job_name or "default"
+    logger.info("Job: %s", job_label)
+
     watchlist = get_watchlist(args.tickers)
     if not watchlist:
         logger.error("Empty watchlist. Set WATCHLIST in .env or use --tickers")
@@ -119,14 +134,20 @@ def main():
     logger.info("Watchlist: %s", watchlist)
 
     # Pre-flight email config check (unless dry-run)
+    email_config: "EmailConfig | None" = None
     if not args.dry_run:
-        config = EmailConfig.from_env()
-        valid, msg = config.is_valid()
+        email_config = EmailConfig.from_env()
+        # Override recipients from CLI if provided
+        if args.recipients:
+            override = [r.strip() for r in args.recipients.split(",") if r.strip()]
+            if override:
+                email_config.recipients = override
+        valid, msg = email_config.is_valid()
         if not valid:
             logger.error("Email config invalid: %s", msg)
-            logger.error("Configure QQ_EMAIL, QQ_EMAIL_PASSWORD, QQ_EMAIL_RECIPIENTS in .env")
+            logger.error("Configure QQ_EMAIL, QQ_EMAIL_PASSWORD, QQ_EMAIL_RECIPIENTS in .env or pass --recipients")
             return 1
-        logger.info("Email config OK. Will send to: %s", config.recipients)
+        logger.info("Email config OK. Will send to: %s", email_config.recipients)
 
     # Reset graph singleton to ensure fresh state
     import backend.graph
@@ -181,7 +202,11 @@ def main():
     if args.summary_only or len(results) > 1:
         # Batch summary email
         subject, html_body, text_body = render_batch_summary(results)
-        success, msg = send_email(subject=subject, html_body=html_body, text_body=text_body)
+        if args.job_name:
+            subject = f"[{args.job_name}] {subject}"
+        success, msg = send_email(
+            subject=subject, html_body=html_body, text_body=text_body, config=email_config,
+        )
         if success:
             logger.info("Summary email sent: %s", msg)
         else:
@@ -191,7 +216,11 @@ def main():
         # Individual emails per stock
         for result in results:
             subject, html_body, text_body = render_analysis_email(result)
-            success, msg = send_email(subject=subject, html_body=html_body, text_body=text_body)
+            if args.job_name:
+                subject = f"[{args.job_name}] {subject}"
+            success, msg = send_email(
+                subject=subject, html_body=html_body, text_body=text_body, config=email_config,
+            )
             if success:
                 logger.info("Email for %s sent: %s", result.get("ticker"), msg)
             else:

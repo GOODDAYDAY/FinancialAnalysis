@@ -12,6 +12,9 @@ build/
 .env
 .venv/
 
+# User schedule config (contains real email addresses)
+config/schedule.json
+
 # IDE
 .idea/
 .claude/

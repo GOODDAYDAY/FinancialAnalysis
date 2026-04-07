@@ -1,34 +1,54 @@
 #!/usr/bin/env python
 """
-Scheduler daemon — runs scheduled_analysis.py at configured intervals.
+Scheduler daemon — runs scheduled stock analysis jobs.
 
 Spawned by run.bat / run.sh alongside the Streamlit app so users get
 automated stock analysis emails without setting up cron / Task Scheduler.
 
-Behavior:
-  1. On startup, optionally run once immediately (RUN_ON_STARTUP=true)
-  2. Loop forever:
-     - Sleep until next scheduled time
-     - Run scripts/scheduled_analysis.py
-     - On error, log and continue (don't crash the daemon)
+Two configuration modes:
 
-Configuration via .env:
-  AUTO_RUN_SCHEDULE=true                  # required to spawn this at all
-  RUN_ON_STARTUP=true                     # run once at daemon start
-  SCHEDULE_MODE=daily                     # interval | daily
-  SCHEDULE_INTERVAL_HOURS=24              # used when mode=interval
-  SCHEDULE_DAILY_TIMES=08:30,13:00,20:00  # one or more HH:MM times, comma-separated
-                                          # (SCHEDULE_DAILY_TIME singular still works for back-compat)
-  SCHEDULE_WEEKDAYS_ONLY=true             # skip weekends in daily mode
+1. JOB-BASED (preferred): config/schedule.json
+   Each job has its own time(s), queries, recipients, summary mode.
+   Example schedule.json:
+       {
+         "jobs": [
+           {
+             "name": "Morning A-Share Brief",
+             "enabled": true,
+             "times": ["08:30"],
+             "weekdays_only": true,
+             "queries": ["分析600519.SS", "分析比亚迪"],
+             "recipients": ["alice@qq.com"],
+             "summary_only": false
+           },
+           {
+             "name": "Midday Tech Watch",
+             "times": ["13:00"],
+             "queries": ["Analyze AAPL", "Analyze MSFT"],
+             "recipients": ["bob@gmail.com"],
+             "summary_only": true
+           }
+         ]
+       }
+
+2. ENV-BASED (fallback when schedule.json missing):
+   AUTO_RUN_SCHEDULE=true                  # required to spawn this at all
+   RUN_ON_STARTUP=true                     # run once at daemon start
+   SCHEDULE_DAILY_TIMES=08:30,13:00,20:00  # one or more HH:MM times
+   SCHEDULE_WEEKDAYS_ONLY=true             # skip weekends
+   WATCHLIST=...                           # global watchlist
+   QQ_EMAIL_RECIPIENTS=...                 # global recipients
 
 Logs go to logs/scheduler.log.
 """
 
+import json
 import logging
 import os
 import subprocess
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -54,6 +74,7 @@ if _env_path.exists():
 LOG_DIR = PROJECT_ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "scheduler.log"
+SCHEDULE_FILE = PROJECT_ROOT / "config" / "schedule.json"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,73 +92,163 @@ def _bool_env(name: str, default: bool = False) -> bool:
     return val in ("1", "true", "yes", "on")
 
 
-def _parse_daily_times() -> list[tuple[int, int]]:
-    """
-    Parse comma-separated HH:MM times from SCHEDULE_DAILY_TIMES.
-    Falls back to SCHEDULE_DAILY_TIME (singular) for backward compat.
-    Returns sorted list of (hour, minute) tuples. Invalid entries are skipped.
-    """
-    raw = os.getenv("SCHEDULE_DAILY_TIMES")
-    if not raw:
-        raw = os.getenv("SCHEDULE_DAILY_TIME", "17:30")
+# ─── Job model ─────────────────────────────────────────────────
 
-    times = []
-    for part in raw.split(","):
-        part = part.strip()
-        if not part:
+@dataclass
+class Job:
+    """A single scheduled analysis job."""
+    name: str
+    times: list[tuple[int, int]]   # list of (hour, minute)
+    queries: list[str]
+    recipients: list[str]          # may be empty -> use env QQ_EMAIL_RECIPIENTS
+    weekdays_only: bool = True
+    summary_only: bool = False
+    enabled: bool = True
+
+    def next_run_after(self, now: datetime) -> datetime:
+        """Compute the next firing time for this job after `now`."""
+        for day_offset in range(0, 14):
+            day = now.date() + timedelta(days=day_offset)
+            if self.weekdays_only and day.weekday() >= 5:
+                continue
+            for hh, mm in self.times:
+                candidate = datetime(day.year, day.month, day.day, hh, mm, 0)
+                if candidate > now:
+                    return candidate
+        return now + timedelta(hours=24)  # safety fallback
+
+
+def _parse_time_string(s: str) -> tuple[int, int] | None:
+    """Parse 'HH:MM' to (hour, minute), return None on invalid."""
+    try:
+        parts = s.strip().split(":")
+        hh, mm = int(parts[0]), int(parts[1])
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return (hh, mm)
+    except (ValueError, IndexError, AttributeError):
+        pass
+    return None
+
+
+def _parse_times_list(raw) -> list[tuple[int, int]]:
+    """Parse a list of HH:MM strings (or comma-separated string) into tuples."""
+    if isinstance(raw, str):
+        raw = raw.split(",")
+    result = []
+    for item in raw or []:
+        parsed = _parse_time_string(str(item))
+        if parsed is not None:
+            result.append(parsed)
+        else:
+            logger.warning("Skipping invalid time %r", item)
+    return sorted(set(result))
+
+
+def load_jobs() -> list[Job]:
+    """
+    Load job list. Tries config/schedule.json first; falls back to
+    a single env-var-based job using WATCHLIST + SCHEDULE_DAILY_TIMES.
+    """
+    if SCHEDULE_FILE.exists():
+        return _load_jobs_from_file(SCHEDULE_FILE)
+    return _load_jobs_from_env()
+
+
+def _load_jobs_from_file(path: Path) -> list[Job]:
+    logger.info("Loading jobs from %s", path)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.error("Failed to read %s: %s", path, e)
+        return []
+
+    raw_jobs = data.get("jobs", [])
+    if not isinstance(raw_jobs, list):
+        logger.error("'jobs' must be a list")
+        return []
+
+    jobs: list[Job] = []
+    for i, raw in enumerate(raw_jobs):
+        if not isinstance(raw, dict):
+            logger.warning("Skipping non-dict entry at index %d", i)
             continue
-        try:
-            hh, mm = part.split(":")
-            hh, mm = int(hh), int(mm)
-            if 0 <= hh <= 23 and 0 <= mm <= 59:
-                times.append((hh, mm))
-            else:
-                logger.warning("Skipping out-of-range time %r", part)
-        except (ValueError, AttributeError):
-            logger.warning("Skipping invalid time %r in SCHEDULE_DAILY_TIMES", part)
+        if not raw.get("enabled", True):
+            logger.info("Skipping disabled job: %s", raw.get("name", f"#{i}"))
+            continue
 
+        name = str(raw.get("name") or f"job_{i}")
+        times = _parse_times_list(raw.get("times") or [])
+        queries = [str(q).strip() for q in (raw.get("queries") or []) if str(q).strip()]
+        recipients = [str(r).strip() for r in (raw.get("recipients") or []) if str(r).strip()]
+        weekdays_only = bool(raw.get("weekdays_only", True))
+        summary_only = bool(raw.get("summary_only", False))
+
+        if not times:
+            logger.warning("Job %s has no valid times, skipping", name)
+            continue
+        if not queries:
+            logger.warning("Job %s has no queries, skipping", name)
+            continue
+
+        jobs.append(Job(
+            name=name,
+            times=times,
+            queries=queries,
+            recipients=recipients,
+            weekdays_only=weekdays_only,
+            summary_only=summary_only,
+        ))
+        logger.info(
+            "Loaded job '%s': %d times, %d queries, %d recipients, weekdays_only=%s",
+            name, len(times), len(queries), len(recipients), weekdays_only,
+        )
+
+    return jobs
+
+
+def _load_jobs_from_env() -> list[Job]:
+    """Build a single job from env vars (back-compat)."""
+    logger.info("config/schedule.json not found, falling back to env-var config")
+    raw_times = os.getenv("SCHEDULE_DAILY_TIMES") or os.getenv("SCHEDULE_DAILY_TIME", "17:30")
+    times = _parse_times_list(raw_times)
     if not times:
-        logger.warning("No valid times parsed, defaulting to 17:30")
         times = [(17, 30)]
 
-    return sorted(set(times))
+    raw_watchlist = os.getenv("WATCHLIST", "600519.SS")
+    queries = [q.strip() for q in raw_watchlist.split(",") if q.strip()]
+
+    return [Job(
+        name="env-default",
+        times=times,
+        queries=queries,
+        recipients=[],   # empty -> scheduled_analysis.py will use env QQ_EMAIL_RECIPIENTS
+        weekdays_only=_bool_env("SCHEDULE_WEEKDAYS_ONLY", default=True),
+        summary_only=False,
+    )]
 
 
-def compute_next_run(now: datetime) -> datetime:
-    """Compute the next scheduled run time based on env config."""
-    mode = os.getenv("SCHEDULE_MODE", "daily").strip().lower()
+# ─── Job dispatch ──────────────────────────────────────────────
 
-    if mode == "interval":
-        hours = float(os.getenv("SCHEDULE_INTERVAL_HOURS", "24"))
-        return now + timedelta(hours=hours)
-
-    # Daily mode: support one or more times per day
-    times = _parse_daily_times()
-    weekdays_only = _bool_env("SCHEDULE_WEEKDAYS_ONLY", default=True)
-
-    # Try today's remaining times first, then push forward day by day
-    for day_offset in range(0, 14):  # at most 2 weeks lookahead (handles long weekends)
-        day = now.date() + timedelta(days=day_offset)
-        if weekdays_only and day.weekday() >= 5:
-            continue
-        for hh, mm in times:
-            candidate = datetime(day.year, day.month, day.day, hh, mm, 0)
-            if candidate > now:
-                return candidate
-
-    # Should never happen, but return a safe fallback
-    return now + timedelta(hours=24)
-
-
-def run_analysis_once() -> int:
-    """Invoke scripts/scheduled_analysis.py as a subprocess. Returns exit code."""
+def run_job(job: Job) -> int:
+    """Invoke scripts/scheduled_analysis.py for one job. Returns exit code."""
     script_path = PROJECT_ROOT / "scripts" / "scheduled_analysis.py"
     if not script_path.exists():
         logger.error("scheduled_analysis.py not found at %s", script_path)
         return 1
 
-    cmd = [sys.executable, str(script_path)]
-    logger.info("Launching: %s", " ".join(cmd))
+    cmd = [
+        sys.executable, str(script_path),
+        "--tickers", ",".join(job.queries),
+        "--job-name", job.name,
+    ]
+    if job.recipients:
+        cmd += ["--recipients", ",".join(job.recipients)]
+    if job.summary_only:
+        cmd.append("--summary-only")
+
+    logger.info("Launching job '%s': %d queries -> %d recipients",
+                job.name, len(job.queries), len(job.recipients) or "<env>")
     try:
         result = subprocess.run(
             cmd,
@@ -146,19 +257,19 @@ def run_analysis_once() -> int:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=30 * 60,  # 30 minute hard timeout per run
+            timeout=30 * 60,
         )
         if result.stdout:
-            logger.info("stdout:\n%s", result.stdout[-2000:])
+            logger.info("[%s] stdout tail:\n%s", job.name, result.stdout[-2000:])
         if result.stderr:
-            logger.warning("stderr:\n%s", result.stderr[-2000:])
-        logger.info("Run finished with exit code %d", result.returncode)
+            logger.warning("[%s] stderr tail:\n%s", job.name, result.stderr[-2000:])
+        logger.info("Job '%s' finished with exit code %d", job.name, result.returncode)
         return result.returncode
     except subprocess.TimeoutExpired:
-        logger.error("scheduled_analysis.py exceeded 30-minute timeout")
+        logger.error("Job '%s' exceeded 30-minute timeout", job.name)
         return 124
     except Exception as e:
-        logger.exception("Failed to run scheduled_analysis.py: %s", e)
+        logger.exception("Job '%s' failed: %s", job.name, e)
         return 1
 
 
@@ -183,31 +294,51 @@ def main() -> int:
     logger.info("Log file: %s", LOG_FILE)
     logger.info("=" * 60)
 
+    jobs = load_jobs()
+    if not jobs:
+        logger.error("No jobs configured. Exiting.")
+        return 1
+    logger.info("Loaded %d job(s)", len(jobs))
+
     if _bool_env("RUN_ON_STARTUP", default=True):
-        logger.info("RUN_ON_STARTUP enabled — running analysis immediately")
-        run_analysis_once()
+        logger.info("RUN_ON_STARTUP enabled — running all jobs once immediately")
+        for job in jobs:
+            run_job(job)
     else:
         logger.info("RUN_ON_STARTUP disabled — waiting for first scheduled time")
 
     while True:
         try:
             now = datetime.now()
-            next_run = compute_next_run(now)
-            wait_seconds = (next_run - now).total_seconds()
+            # Compute next firing time per job, pick the earliest
+            schedule = [(job.next_run_after(now), job) for job in jobs]
+            schedule.sort(key=lambda pair: pair[0])
+            next_time, next_job = schedule[0]
+            wait_seconds = (next_time - now).total_seconds()
             logger.info(
-                "Next run scheduled at %s (in %.1f hours)",
-                next_run.strftime("%Y-%m-%d %H:%M:%S"),
+                "Next: '%s' at %s (in %.1f hours). %d total job(s) queued.",
+                next_job.name,
+                next_time.strftime("%Y-%m-%d %H:%M:%S"),
                 wait_seconds / 3600,
+                len(jobs),
             )
-            sleep_until(next_run)
-            logger.info("Triggering scheduled run at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            run_analysis_once()
+            sleep_until(next_time)
+            logger.info("Firing job '%s' at %s", next_job.name, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            run_job(next_job)
+            # After firing, check if more jobs share the same minute and run them too
+            now2 = datetime.now()
+            for other_time, other_job in schedule[1:]:
+                if other_job is next_job:
+                    continue
+                if abs((other_time - next_time).total_seconds()) < 60 and other_time <= now2:
+                    logger.info("Concurrent job '%s' fires at the same time", other_job.name)
+                    run_job(other_job)
         except KeyboardInterrupt:
             logger.info("Received KeyboardInterrupt, daemon exiting")
             return 0
         except Exception as e:
             logger.exception("Unexpected error in daemon loop: %s", e)
-            time.sleep(60)  # Wait a minute before retrying to avoid tight loop
+            time.sleep(60)
 
 
 if __name__ == "__main__":
