@@ -1,0 +1,7 @@
+2026-04-07 21:48:30,992 [INFO] AUTO_RUN_SCHEDULE is not enabled. Daemon exiting.
+2026-04-07 21:49:14,574 [INFO] ============================================================
+2026-04-07 21:49:14,574 [INFO] Scheduler daemon starting (PID 49432)
+2026-04-07 21:49:14,574 [INFO] Log file: D:\git-project\ai-project\logs\scheduler.log
+2026-04-07 21:49:14,574 [INFO] ============================================================
+2026-04-07 21:49:14,574 [INFO] RUN_ON_STARTUP disabled — waiting for first scheduled time
+2026-04-07 21:49:14,574 [INFO] Next run scheduled at 2026-04-08 21:49:14 (in 24.0 hours)

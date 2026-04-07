@@ -22,7 +22,7 @@ echo.
 REM -------- Step 1: Ensure uv is installed --------
 where uv >nul 2>nul
 if errorlevel 1 (
-    echo [1/5] uv not found. Installing uv automatically...
+    echo [1/6] uv not found. Installing uv automatically...
     powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
     if errorlevel 1 (
         echo [ERROR] Failed to install uv automatically.
@@ -41,13 +41,13 @@ if errorlevel 1 (
     )
     echo      uv installed successfully.
 ) else (
-    echo [1/5] uv is already installed.
+    echo [1/6] uv is already installed.
 )
 echo.
 
 REM -------- Step 2: Create venv if missing --------
 if not exist "%PROJECT_DIR%\.venv" (
-    echo [2/5] Creating Python 3.11 virtual environment...
+    echo [2/6] Creating Python 3.11 virtual environment...
     uv venv --python 3.11
     if errorlevel 1 (
         echo [ERROR] Failed to create venv.
@@ -56,12 +56,12 @@ if not exist "%PROJECT_DIR%\.venv" (
     )
     echo      Virtual environment created.
 ) else (
-    echo [2/5] Virtual environment already exists.
+    echo [2/6] Virtual environment already exists.
 )
 echo.
 
 REM -------- Step 3: Install dependencies --------
-echo [3/5] Installing/syncing dependencies (first run takes a few minutes)...
+echo [3/6] Installing/syncing dependencies (first run takes a few minutes)...
 uv pip install -r requirements.txt
 if errorlevel 1 (
     echo [ERROR] Failed to install dependencies.
@@ -73,7 +73,7 @@ echo.
 
 REM -------- Step 4: Check / create .env --------
 if not exist "%PROJECT_DIR%\.env" (
-    echo [4/5] .env file not found.
+    echo [4/6] .env file not found.
     echo.
     echo Please enter your DeepSeek API key ^(get one at https://platform.deepseek.com^):
     set /p DEEPSEEK_KEY="API Key: "
@@ -102,12 +102,29 @@ if not exist "%PROJECT_DIR%\.env" (
     ) > "%PROJECT_DIR%\.env"
     echo      .env file created.
 ) else (
-    echo [4/5] .env file found.
+    echo [4/6] .env file found.
 )
 echo.
 
-REM -------- Step 5: Launch Streamlit --------
-echo [5/5] Starting Streamlit application...
+REM -------- Step 5: Optionally start scheduler daemon --------
+REM Read AUTO_RUN_SCHEDULE from .env without polluting current shell
+set AUTO_RUN_SCHEDULE=
+for /f "usebackq tokens=1,* delims==" %%a in ("%PROJECT_DIR%\.env") do (
+    if /i "%%a"=="AUTO_RUN_SCHEDULE" set AUTO_RUN_SCHEDULE=%%b
+)
+if /i "!AUTO_RUN_SCHEDULE!"=="true" (
+    echo [5/6] Starting scheduler daemon in background...
+    start "AI Investment Scheduler" /MIN cmd /c "uv run --no-sync python scripts\scheduler_daemon.py"
+    echo      Daemon started. Check logs\scheduler.log for progress.
+    echo.
+) else (
+    echo [5/6] AUTO_RUN_SCHEDULE not enabled — skipping scheduler daemon.
+    echo      To enable: set AUTO_RUN_SCHEDULE=true in .env
+    echo.
+)
+
+REM -------- Step 6: Launch Streamlit --------
+echo [6/6] Starting Streamlit application...
 echo.
 echo ============================================================
 echo  Open your browser at: http://localhost:8501

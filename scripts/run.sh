@@ -20,7 +20,7 @@ echo
 
 # Step 1: Ensure uv is installed
 if ! command -v uv >/dev/null 2>&1; then
-    echo "[1/5] uv not found. Installing uv automatically..."
+    echo "[1/6] uv not found. Installing uv automatically..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
     export PATH="$HOME/.local/bin:$PATH"
     if ! command -v uv >/dev/null 2>&1; then
@@ -30,29 +30,29 @@ if ! command -v uv >/dev/null 2>&1; then
     fi
     echo "     uv installed successfully."
 else
-    echo "[1/5] uv is already installed."
+    echo "[1/6] uv is already installed."
 fi
 echo
 
 # Step 2: Create venv if missing
 if [ ! -d "$PROJECT_DIR/.venv" ]; then
-    echo "[2/5] Creating Python 3.11 virtual environment..."
+    echo "[2/6] Creating Python 3.11 virtual environment..."
     uv venv --python 3.11
     echo "     Virtual environment created."
 else
-    echo "[2/5] Virtual environment already exists."
+    echo "[2/6] Virtual environment already exists."
 fi
 echo
 
 # Step 3: Install dependencies
-echo "[3/5] Installing/syncing dependencies (first run takes a few minutes)..."
+echo "[3/6] Installing/syncing dependencies (first run takes a few minutes)..."
 uv pip install -r requirements.txt
 echo "     Dependencies ready."
 echo
 
 # Step 4: Check / create .env
 if [ ! -f "$PROJECT_DIR/.env" ]; then
-    echo "[4/5] .env file not found."
+    echo "[4/6] .env file not found."
     echo
     echo "Please enter your DeepSeek API key (get one at https://platform.deepseek.com):"
     read -r -p "API Key: " DEEPSEEK_KEY
@@ -80,12 +80,30 @@ LOG_LEVEL=INFO
 EOF
     echo "     .env file created."
 else
-    echo "[4/5] .env file found."
+    echo "[4/6] .env file found."
 fi
 echo
 
-# Step 5: Launch Streamlit
-echo "[5/5] Starting Streamlit application..."
+# Step 5: Optionally start scheduler daemon in background
+# Read AUTO_RUN_SCHEDULE from .env without polluting current shell
+AUTO_RUN_SCHEDULE=$(grep -E '^AUTO_RUN_SCHEDULE=' "$PROJECT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d ' \r"')
+if [ "${AUTO_RUN_SCHEDULE,,}" = "true" ]; then
+    echo "[5/6] Starting scheduler daemon in background..."
+    mkdir -p logs
+    nohup uv run --no-sync python scripts/scheduler_daemon.py > logs/scheduler-stdout.log 2>&1 &
+    SCHEDULER_PID=$!
+    echo "     Daemon started (PID $SCHEDULER_PID). Logs: logs/scheduler.log"
+    echo
+    # Trap to cleanup daemon on exit
+    trap "echo 'Stopping scheduler daemon...'; kill $SCHEDULER_PID 2>/dev/null || true" EXIT
+else
+    echo "[5/6] AUTO_RUN_SCHEDULE not enabled - skipping scheduler daemon."
+    echo "     To enable: set AUTO_RUN_SCHEDULE=true in .env"
+    echo
+fi
+
+# Step 6: Launch Streamlit
+echo "[6/6] Starting Streamlit application..."
 echo
 echo "============================================================"
 echo " Open your browser at: http://localhost:8501"
