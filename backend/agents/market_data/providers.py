@@ -7,18 +7,85 @@ from backend.agents.market_data.mock import get_mock_market_data
 logger = logging.getLogger(__name__)
 
 
+def normalize_ticker(ticker: str) -> list[str]:
+    """
+    Normalize a possibly-bare ticker into one or more yfinance-compatible
+    candidates, ordered by likelihood. yfinance requires exchange suffixes
+    for non-US stocks; orchestrator may extract bare numeric codes from
+    Chinese queries (e.g. "300565") that need ".SZ" appended.
+
+    Rules (Chinese A-share + HK):
+      - Already has a dot: passthrough as-is
+      - 6-digit starting with 6  -> Shanghai (.SS)
+      - 6-digit starting with 0  -> Shenzhen Main Board (.SZ)
+      - 6-digit starting with 3  -> Shenzhen ChiNext (.SZ)
+      - 6-digit starting with 4 or 8 -> Beijing (.BJ)
+      - 4-digit numeric          -> Hong Kong (.HK)
+      - Anything else (e.g. AAPL) -> passthrough as-is
+
+    Returns a list of candidates to try in order. The first that returns
+    non-empty history wins.
+    """
+    ticker = ticker.strip().upper()
+    if not ticker:
+        return []
+    if "." in ticker:
+        return [ticker]
+    if ticker.isdigit():
+        if len(ticker) == 6:
+            first = ticker[0]
+            if first == "6":
+                return [f"{ticker}.SS"]
+            if first in ("0", "3"):
+                return [f"{ticker}.SZ"]
+            if first in ("4", "8"):
+                return [f"{ticker}.BJ", f"{ticker}.SZ"]
+            # Unknown prefix: try both major exchanges
+            return [f"{ticker}.SS", f"{ticker}.SZ"]
+        if len(ticker) == 4:
+            return [f"{ticker}.HK"]
+        if len(ticker) == 5:
+            # HK 5-digit codes (rare) zero-padded
+            return [f"{ticker}.HK"]
+    # Letters (US tickers like AAPL) — yfinance accepts as-is
+    return [ticker]
+
+
 def fetch_market_data(ticker: str) -> MarketDataResult:
     """Fetch real-time stock data via yfinance. Falls back to mock on any error."""
     try:
         import yfinance as yf
 
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        hist = stock.history(period="1y")
-
-        if hist.empty:
-            logger.warning("Empty history for %s, falling back to mock", ticker)
+        candidates = normalize_ticker(ticker)
+        if not candidates:
+            logger.warning("Cannot normalize empty ticker, using mock")
             return get_mock_market_data(ticker)
+
+        stock = None
+        info = None
+        hist = None
+        used_ticker = None
+
+        for cand in candidates:
+            logger.info("Trying yfinance ticker: %s", cand)
+            try:
+                stock_try = yf.Ticker(cand)
+                hist_try = stock_try.history(period="1y")
+                if hist_try is not None and not hist_try.empty:
+                    stock = stock_try
+                    hist = hist_try
+                    info = stock_try.info
+                    used_ticker = cand
+                    break
+            except Exception as inner:
+                logger.warning("yfinance candidate %s failed: %s", cand, inner)
+
+        if hist is None or hist.empty:
+            logger.warning("All candidates %s returned empty, falling back to mock", candidates)
+            return get_mock_market_data(ticker)
+
+        ticker = used_ticker  # use the resolved ticker downstream
+        logger.info("Resolved ticker -> %s", ticker)
 
         closes = hist["Close"].values.tolist()
         current_price = closes[-1] if closes else None
