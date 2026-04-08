@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _build_analysis_context(state: dict) -> str:
-    """Flatten all analysis results into text for debaters, including quant signals."""
+    """Flatten all analysis results into text for debaters."""
     ticker = state.get("ticker", "???")
     market = state.get("market_data", {})
     sentiment = state.get("sentiment", {})
@@ -25,12 +25,75 @@ def _build_analysis_context(state: dict) -> str:
     grid = state.get("grid_strategy", {})
     announcements = state.get("announcements", [])
     social = state.get("social_sentiment", {})
+    macro = state.get("macro_env", {})
+    sector = state.get("sector", {})
+    momentum = state.get("momentum", {})
+    judge = state.get("debate_judge", {})
 
-    # Build quant section
+    # Macro environment section (important for contextualizing individual stock calls)
+    macro_text = ""
+    if macro and macro.get("indices"):
+        macro_text = (
+            f"\nMACRO ENVIRONMENT (broad Chinese market):\n"
+            f"  Overall regime: {macro.get('overall_regime', 'UNKNOWN')}\n"
+            f"  Primary benchmark (CSI 300) regime: {macro.get('primary_regime', 'UNKNOWN')}\n"
+        )
+        for sym, idx in list(macro.get("indices", {}).items())[:5]:
+            macro_text += (
+                f"  - {idx.get('name')}: {idx.get('price')} "
+                f"({idx.get('change_pct', 0):+.2f}% today, "
+                f"5d={idx.get('return_5d_pct', 'N/A')}%, "
+                f"20d={idx.get('return_20d_pct', 'N/A')}%, "
+                f"regime={idx.get('regime', 'UNKNOWN')})\n"
+            )
+
+    # Sector / industry section
+    sector_text = ""
+    if sector:
+        sector_text = "\nSECTOR / INDUSTRY CONTEXT:\n"
+        stock_row = sector.get("stock_sector_row")
+        if stock_row:
+            sector_text += (
+                f"  This stock's sector: {stock_row.get('name')} "
+                f"(rank #{stock_row.get('rank')}, "
+                f"today {stock_row.get('change_pct', 0):+.2f}%, "
+                f"advance/decline {stock_row.get('advance', 0)}/{stock_row.get('decline', 0)})\n"
+            )
+        elif sector.get("stock_industry", {}).get("industry_name"):
+            sector_text += f"  This stock's industry: {sector['stock_industry']['industry_name']}\n"
+        if sector.get("top_sectors"):
+            sector_text += "  Hot sectors today: " + ", ".join(
+                f"{s['name']}({s['change_pct']:+.2f}%)" for s in sector["top_sectors"][:5]
+            ) + "\n"
+        if sector.get("top_concepts"):
+            sector_text += "  Hot concepts: " + ", ".join(
+                f"{c['name']}({c['change_pct']:+.2f}%)" for c in sector["top_concepts"][:5]
+            ) + "\n"
+
+    # Momentum section — important for avoiding 'sell on rising stock'
+    momentum_text = ""
+    if momentum and momentum.get("score") is not None:
+        mrt = momentum.get("returns", {}) or {}
+        momentum_text = (
+            f"\nMOMENTUM ANALYSIS (algorithmic, short/medium-term):\n"
+            f"  Momentum Score: {momentum.get('score', 0)}/100 ({momentum.get('regime', 'N/A')})\n"
+            f"  Recent returns: 3d={mrt.get('3d')}, 5d={mrt.get('5d')}, "
+            f"10d={mrt.get('10d')}, 20d={mrt.get('20d')}, 60d={mrt.get('60d')}\n"
+            f"  20-day range position: {momentum.get('range_position_pct', 'N/A')}%\n"
+            f"  20-day breakout: {momentum.get('breakout_20', False)}\n"
+            f"  Volume surge ratio: {momentum.get('volume_surge_ratio', 'N/A')}\n"
+            f"  Trend consistency: {momentum.get('trend_consistency_pct', 'N/A')}% up days\n"
+            f"  Relative strength vs CSI 300 (20d): {momentum.get('relative_strength_vs_csi300_20d', 'N/A')}%\n"
+        )
+        for sig in momentum.get("signals", [])[:6]:
+            icon = "+" if sig["type"] == "bullish" else "-" if sig["type"] == "bearish" else "="
+            momentum_text += f"  [{icon}] {sig['name']}: {sig['detail']}\n"
+
+    # Quant section
     quant_text = ""
     if quant and quant.get("score") is not None:
         quant_text = (
-            f"\nQUANT ANALYSIS (algorithmic, no AI bias):\n"
+            f"\nQUANT ANALYSIS (algorithmic, long-term trend):\n"
             f"  Quant Score: {quant.get('score', 0)}/100 ({quant.get('verdict', 'N/A')})\n"
             f"  Bullish Signals: {quant.get('bullish_count', 0)}\n"
             f"  Bearish Signals: {quant.get('bearish_count', 0)}\n"
@@ -38,45 +101,59 @@ def _build_analysis_context(state: dict) -> str:
         for sig in quant.get("signals", []):
             icon = "+" if sig["type"] == "bullish" else "-" if sig["type"] == "bearish" else "="
             quant_text += f"  [{icon}] {sig['name']}: {sig['detail']} (weight: {sig['weight']})\n"
-        quant_text += f"  Summary: {quant.get('summary', '')}\n"
 
-    # Build grid strategy section
+    # Grid strategy section
     grid_text = ""
     if grid and grid.get("score") is not None:
         grid_text = (
-            f"\nGRID STRATEGY ANALYSIS (algorithmic):\n"
+            f"\nGRID STRATEGY ANALYSIS:\n"
             f"  Suitability: {grid.get('score', 0)}/100 ({grid.get('verdict', 'N/A')})\n"
             f"  Annual Volatility: {grid.get('annual_volatility_pct', 0)}%\n"
             f"  Best Strategy: {grid.get('best_strategy_name', 'none')}\n"
-            f"  Best Estimated Monthly Return: {grid.get('best_monthly_return_pct', 0)}%\n"
-            f"  Reasons: {grid.get('reasons', [])}\n"
+            f"  Best Monthly Return: {grid.get('best_monthly_return_pct', 0)}%\n"
         )
 
+    # Judge feedback from prior round (if any)
+    judge_text = ""
+    if judge and judge.get("verdict") == "continue":
+        judge_text = (
+            f"\n=== JUDGE FEEDBACK FROM PREVIOUS ROUND ===\n"
+            f"  Previous round quality: {judge.get('quality_score', 'N/A')}/100\n"
+            f"  Judge's reason for requesting another round: {judge.get('reason', 'N/A')}\n"
+            f"  Unresolved points you MUST address in this round:\n"
+        )
+        for pt in judge.get("unresolved_points", []):
+            judge_text += f"    - {pt}\n"
+
     return (
-        f"=== Analysis Data for {ticker} ===\n\n"
-        f"MARKET DATA:\n"
+        f"=== Analysis Data for {ticker} ===\n"
+        f"{macro_text}"
+        f"{sector_text}"
+        f"\nMARKET DATA:\n"
         f"  Price: ${market.get('current_price', 'N/A')}\n"
-        f"  Change: {market.get('price_change_pct', 'N/A')}%\n"
+        f"  Change today: {market.get('price_change_pct', 'N/A')}%\n"
         f"  P/E Ratio: {market.get('pe_ratio', 'N/A')}\n"
         f"  RSI(14): {market.get('rsi_14', 'N/A')}\n"
-        f"  Technical Signals: {market.get('technical_signals', [])}\n\n"
-        f"SENTIMENT:\n"
+        f"  Technical Signals: {market.get('technical_signals', [])}\n"
+        f"{momentum_text}"
+        f"\nSENTIMENT (news-based):\n"
         f"  Overall Score: {sentiment.get('overall_score', 'N/A')} (-1 bearish to +1 bullish)\n"
         f"  Label: {sentiment.get('overall_label', 'N/A')}\n"
         f"  Key Factors: {sentiment.get('key_factors', [])}\n"
-        f"  Reasoning: {sentiment.get('reasoning', 'N/A')}\n\n"
-        f"FUNDAMENTALS:\n"
+        f"  Reasoning: {sentiment.get('reasoning', 'N/A')}\n"
+        f"\nFUNDAMENTALS:\n"
         f"  Health Score: {fundamental.get('health_score', 'N/A')}/10\n"
         f"  Red Flags: {fundamental.get('red_flags', [])}\n"
         f"  Summary: {fundamental.get('summary', 'N/A')}\n"
         f"{quant_text}"
-        f"{grid_text}\n"
-        f"COMPANY ANNOUNCEMENTS ({len(announcements)} items):\n"
+        f"{grid_text}"
+        f"\nCOMPANY ANNOUNCEMENTS ({len(announcements)} items):\n"
         + ("".join(f"  - [{a.get('date','')}] {a.get('title','')[:80]}\n" for a in announcements[:5]) if announcements else "  No announcements available.\n")
         + f"\nSOCIAL SENTIMENT (Eastmoney):\n"
         f"  Summary: {social.get('summary', 'No social data')}\n"
         f"  Is Trending: {social.get('is_trending', 'N/A')}\n"
         f"  Trending Rank: {social.get('trending_rank', 'N/A')}\n"
+        f"{judge_text}"
     )
 
 
@@ -172,14 +249,6 @@ def debate_node(state: dict) -> dict:
     }
 
 
-def should_continue_debate(state: dict) -> str:
-    """Conditional edge: continue debate or move to risk assessment."""
-    current_round = state.get("debate_round", 0)
-    max_rounds = settings.debate_max_rounds
-
-    if current_round < max_rounds:
-        logger.info("Debate continues: round %d/%d", current_round, max_rounds)
-        return "debate"
-
-    logger.info("Debate finished after %d rounds", current_round)
-    return "risk"
+# NOTE: The fixed-rounds `should_continue_debate` has been replaced by
+# debate_judge_node + should_continue_debate_with_judge in the debate_judge
+# agent. The graph now routes debate -> debate_judge -> (debate|risk).

@@ -122,6 +122,14 @@ class ResearchState(TypedDict, total=False):
     financial_summary: dict
     social_sentiment: dict
 
+    # Macro / sector / momentum context
+    macro_env: dict
+    sector: dict
+    momentum: dict
+
+    # Debate judge verdict (updated each judge round)
+    debate_judge: dict
+
     # Quant
     quant: dict
 

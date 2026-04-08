@@ -1,11 +1,16 @@
 """
-LangGraph StateGraph: wires all 8 agents into the analysis pipeline.
+LangGraph StateGraph: wires all agents into the analysis pipeline.
 
-Graph topology:
-  orchestrator → market_data → news
-  → sentiment → fundamental → quant → debate (self-loop x2) → risk → advisory
+Pipeline:
+  orchestrator
+    -> market_data -> macro_env -> sector
+    -> news -> announcement -> social_sentiment
+    -> sentiment -> fundamental
+    -> momentum -> quant -> grid_strategy
+    -> debate -> debate_judge -> (debate again | risk)
+    -> advisory
 
-Quant Agent runs pure algorithms (no LLM) and feeds into the debate as "data referee".
+Each agent lives in its own sub-package under backend/agents/.
 """
 
 import logging
@@ -14,22 +19,21 @@ from langgraph.graph import StateGraph, END
 from backend.state import ResearchState
 from backend.agents.orchestrator import orchestrator_node
 from backend.agents.market_data import market_data_node
+from backend.agents.macro_env import macro_env_node
+from backend.agents.sector import sector_node
 from backend.agents.news import news_node
 from backend.agents.announcement import announcement_node
 from backend.agents.social_sentiment import social_sentiment_node
 from backend.agents.sentiment import sentiment_node
 from backend.agents.fundamental import fundamental_node
+from backend.agents.momentum import momentum_node
 from backend.agents.quant import quant_node
 from backend.agents.grid_strategy import grid_strategy_node
-from backend.agents.debate import debate_node, should_continue_debate
+from backend.agents.debate import debate_node
+from backend.agents.debate_judge import debate_judge_node
+from backend.agents.debate_judge.node import should_continue_debate_with_judge
 from backend.agents.risk import risk_node
 from backend.agents.advisory import advisory_node
-
-# Each agent lives in its own sub-package:
-#   backend/agents/<agent_name>/
-#     __init__.py   - exports the node function
-#     node.py       - the LangGraph node function
-#     *.py          - agent-specific modules (providers, signals, sources, etc.)
 
 logger = logging.getLogger(__name__)
 
@@ -60,17 +64,21 @@ def build_graph():
     """Build and compile the LangGraph StateGraph."""
     graph = StateGraph(ResearchState)
 
-    # Register nodes (10 agents)
+    # Register nodes
     graph.add_node("orchestrator", _safe(orchestrator_node, "orchestrator"))
     graph.add_node("market_data", _safe(market_data_node, "market_data"))
+    graph.add_node("macro_env", _safe(macro_env_node, "macro_env"))
+    graph.add_node("sector", _safe(sector_node, "sector"))
     graph.add_node("news", _safe(news_node, "news"))
     graph.add_node("announcement", _safe(announcement_node, "announcement"))
     graph.add_node("social_sentiment", _safe(social_sentiment_node, "social_sentiment"))
     graph.add_node("sentiment", _safe(sentiment_node, "sentiment"))
     graph.add_node("fundamental", _safe(fundamental_node, "fundamental"))
+    graph.add_node("momentum", _safe(momentum_node, "momentum"))
     graph.add_node("quant", _safe(quant_node, "quant"))
     graph.add_node("grid_strategy", _safe(grid_strategy_node, "grid_strategy"))
     graph.add_node("debate", _safe(debate_node, "debate"))
+    graph.add_node("debate_judge", _safe(debate_judge_node, "debate_judge"))
     graph.add_node("risk", _safe(risk_node, "risk"))
     graph.add_node("advisory", _safe(advisory_node, "advisory"))
 
@@ -87,36 +95,38 @@ def build_graph():
         },
     )
 
-    # Data collection: market_data → [news, announcement, social_sentiment] (sequential)
-    graph.add_edge("market_data", "news")
+    # Data collection pipeline
+    graph.add_edge("market_data", "macro_env")
+    graph.add_edge("macro_env", "sector")
+    graph.add_edge("sector", "news")
     graph.add_edge("news", "announcement")
     graph.add_edge("announcement", "social_sentiment")
 
-    # Analysis pipeline: social_sentiment → sentiment → fundamental
+    # Analysis pipeline
     graph.add_edge("social_sentiment", "sentiment")
     graph.add_edge("sentiment", "fundamental")
-
-    # Quant + Grid Strategy → Debate: algorithmic evidence and trading strategies
-    graph.add_edge("fundamental", "quant")
+    graph.add_edge("fundamental", "momentum")
+    graph.add_edge("momentum", "quant")
     graph.add_edge("quant", "grid_strategy")
-    graph.add_edge("grid_strategy", "debate")
 
-    # Debate self-loop
+    # Debate loop with judge
+    graph.add_edge("grid_strategy", "debate")
+    graph.add_edge("debate", "debate_judge")
     graph.add_conditional_edges(
-        "debate",
-        should_continue_debate,
+        "debate_judge",
+        should_continue_debate_with_judge,
         {
             "debate": "debate",
             "risk": "risk",
         },
     )
 
-    # Risk → Advisory → END
+    # Risk -> Advisory -> END
     graph.add_edge("risk", "advisory")
     graph.add_edge("advisory", END)
 
     compiled = graph.compile()
-    logger.info("LangGraph compiled successfully with 9 nodes")
+    logger.info("LangGraph compiled successfully with 16 nodes")
     return compiled
 
 
@@ -140,23 +150,27 @@ def run_analysis(query: str) -> dict:
         "intent": "",
         "language": "en",
         "market_data": {},
+        "macro_env": {},
+        "sector": {},
         "news_articles": [],
         "announcements": [],
         "financial_summary": {},
         "social_sentiment": {},
         "sentiment": {},
         "fundamental": {},
+        "momentum": {},
         "quant": {},
         "grid_strategy": {},
-        "risk": {},
         "debate_history": [],
         "debate_round": 0,
+        "debate_judge": {},
+        "risk": {},
         "recommendation": {},
         "reasoning_chain": [],
         "errors": [],
     }
 
     logger.info("Starting analysis for: %s", query[:100])
-    result = graph.invoke(initial_state)
+    result = graph.invoke(initial_state, config={"recursion_limit": 50})
     logger.info("Analysis complete for: %s", query[:100])
     return result

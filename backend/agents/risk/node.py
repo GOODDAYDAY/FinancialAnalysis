@@ -14,6 +14,9 @@ def risk_node(state: dict) -> dict:
     market_data = state.get("market_data", {})
     sentiment = state.get("sentiment", {})
     fundamental = state.get("fundamental", {})
+    macro = state.get("macro_env", {})
+    sector = state.get("sector", {})
+    momentum = state.get("momentum", {})
     language = state.get("language", "en")
 
     system_prompt = (
@@ -27,11 +30,19 @@ def risk_node(state: dict) -> dict:
 
     data_summary = (
         f"Analyze risk for {ticker}:\n"
+        f"\n--- Macro Context ---\n"
+        f"Overall market regime: {macro.get('overall_regime', 'UNKNOWN')}\n"
+        f"\n--- Sector Context ---\n"
+        f"Stock sector: {(sector.get('stock_sector_row') or {}).get('name', 'unknown')} "
+        f"(today {(sector.get('stock_sector_row') or {}).get('change_pct', 'N/A')}%)\n"
         f"\n--- Market Data ---\n"
         f"Price: ${market_data.get('current_price', 'N/A')}\n"
         f"P/E: {market_data.get('pe_ratio', 'N/A')}\n"
         f"RSI: {market_data.get('rsi_14', 'N/A')}\n"
         f"Technical signals: {market_data.get('technical_signals', [])}\n"
+        f"\n--- Momentum ---\n"
+        f"Score: {momentum.get('score', 'N/A')}/100 ({momentum.get('regime', 'N/A')})\n"
+        f"Recent returns: {momentum.get('returns', {})}\n"
         f"\n--- Sentiment ---\n"
         f"Score: {sentiment.get('overall_score', 'N/A')}\n"
         f"Label: {sentiment.get('overall_label', 'N/A')}\n"
