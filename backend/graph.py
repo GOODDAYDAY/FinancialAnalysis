@@ -1,16 +1,31 @@
 """
 LangGraph StateGraph: wires all agents into the analysis pipeline.
 
-Pipeline:
-  orchestrator
-    -> market_data -> macro_env -> sector
-    -> news -> announcement -> social_sentiment
-    -> sentiment -> fundamental
-    -> momentum -> quant -> grid_strategy
-    -> debate -> debate_judge -> (debate again | risk)
-    -> advisory
+Pipeline (parallel fan-out inside data collection):
 
-Each agent lives in its own sub-package under backend/agents/.
+  orchestrator
+    ├─► market_data       ┐
+    ├─► macro_env         │
+    ├─► sector            │  (run in parallel — all independent)
+    ├─► news              │
+    ├─► announcement      │
+    └─► social_sentiment  ┘
+                          │
+                          ▼
+                   sentiment  (joins — needs news_articles)
+                          ▼
+                   fundamental (needs market_data)
+                          ▼
+                   momentum
+                          ▼
+                   quant → grid_strategy
+                          ▼
+                   debate ↔ debate_judge → risk → advisory
+
+Parallelism cuts total latency because market_data/news/macro_env all
+sit on different I/O paths (yfinance, akshare, web scrapers). Each
+parallel node writes a disjoint key of ResearchState so LangGraph's
+default reducer is safe.
 """
 
 import logging
@@ -82,28 +97,37 @@ def build_graph():
     graph.add_node("risk", _safe(risk_node, "risk"))
     graph.add_node("advisory", _safe(advisory_node, "advisory"))
 
+    # No-op dispatch node used as the fan-out hub. LangGraph executes
+    # all out-edges of a node in parallel when they target distinct
+    # nodes, so we route orchestrator → dispatch → [6 collectors].
+    graph.add_node("dispatch", lambda s: {})
+
     # Entry point
     graph.set_entry_point("orchestrator")
 
-    # After orchestrator: route by intent
+    # After orchestrator: route by intent. Stock queries flow through
+    # the dispatch sentinel which fans out to all 6 collectors.
+    DATA_COLLECTORS = [
+        "market_data", "macro_env", "sector",
+        "news", "announcement", "social_sentiment",
+    ]
     graph.add_conditional_edges(
         "orchestrator",
         _route_after_orchestrator,
         {
-            "collect_data": "market_data",
+            "collect_data": "dispatch",
             "end": END,
         },
     )
 
-    # Data collection pipeline
-    graph.add_edge("market_data", "macro_env")
-    graph.add_edge("macro_env", "sector")
-    graph.add_edge("sector", "news")
-    graph.add_edge("news", "announcement")
-    graph.add_edge("announcement", "social_sentiment")
+    # Fan-out from dispatch: LangGraph runs these 6 edges in parallel.
+    for collector in DATA_COLLECTORS:
+        graph.add_edge("dispatch", collector)
 
-    # Analysis pipeline
-    graph.add_edge("social_sentiment", "sentiment")
+    # Fan-in: every data collector feeds into sentiment. LangGraph
+    # waits until all 6 complete before running sentiment.
+    for collector in DATA_COLLECTORS:
+        graph.add_edge(collector, "sentiment")
     graph.add_edge("sentiment", "fundamental")
     graph.add_edge("fundamental", "momentum")
     graph.add_edge("momentum", "quant")
@@ -171,6 +195,22 @@ def run_analysis(query: str) -> dict:
     }
 
     logger.info("Starting analysis for: %s", query[:100])
+
+    # Reset per-request token tracker so the summary is scoped to
+    # this invocation only
+    try:
+        from backend.observability import get_tracker, current_request_summary
+        get_tracker().reset()
+    except Exception:
+        pass
+
     result = graph.invoke(initial_state, config={"recursion_limit": 50})
+
+    # Attach observability summary for UI / audit consumption
+    try:
+        result["token_usage"] = current_request_summary()
+    except Exception:
+        pass
+
     logger.info("Analysis complete for: %s", query[:100])
     return result

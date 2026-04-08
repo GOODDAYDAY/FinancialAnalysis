@@ -58,6 +58,32 @@ def call_llm(
         max_tokens=tokens,
     )
     content = response.choices[0].message.content or ""
+
+    # Observability — record token usage on the thread-local tracker
+    try:
+        from backend.observability import record_llm_call
+        record_llm_call(agent="llm_client", usage=response.usage, model=settings.deepseek_model)
+    except Exception as e:
+        logger.debug("token tracker failed (non-fatal): %s", e)
+
+    # Output filter — scrub PII leaks, system-prompt regurgitation,
+    # suspicious URLs. Flagged responses are logged to the audit trail.
+    try:
+        from backend.security import filter_llm_output
+        from backend.observability.audit_trail import audit_log, AuditEvent, AuditKind
+        filtered = filter_llm_output(content)
+        if filtered.flagged:
+            logger.warning("LLM output filter flagged: %s", filtered.reasons)
+            audit_log(AuditEvent(
+                kind=AuditKind.OUTPUT_FILTERED,
+                agent="llm_client",
+                message="; ".join(filtered.reasons),
+                details={"pii_count": len(filtered.pii_matches)},
+            ))
+        content = filtered.cleaned
+    except Exception as e:
+        logger.warning("Output filter failed (non-fatal): %s", e)
+
     logger.info("LLM response: %d chars, tokens=%s", len(content), response.usage)
     return content
 

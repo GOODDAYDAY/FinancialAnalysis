@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-test-security:
+    name: Lint + Tests + Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff pytest pip-audit
+
+      - name: Lint (ruff)
+        run: ruff check backend/ tests/ || true
+        # Soft-fail for now — ruff findings tracked as tech-debt, not blockers
+
+      - name: Security test suite
+        # Hard fail — this is the AI security gate
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest tests/security/ -v
+
+      - name: Unit tests (imports + fast tests)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          # Fake keys so modules that do lazy init don't explode in CI
+          DEEPSEEK_API_KEY: "sk-ci-fake-key"
+        run: |
+          pytest tests/security/ tests/agents/ -v --ignore=tests/e2e || true
+
+      - name: Dependency vulnerability scan
+        run: pip-audit --strict --ignore-vuln GHSA-4xh5-x5gv-qwph || true
+        # Soft-fail: vendor libs (akshare, yfinance) drag in transitive issues
+        # we can't control. Logged, reviewed per release.
+
+      - name: Static secret scan
+        run: |
+          # Block any hard-coded DeepSeek / OpenAI / generic sk- key in tracked files
+          if grep -rE "sk-[a-zA-Z0-9]{20,}" --include="*.py" --include="*.md" --include="*.yml" --include="*.json" --exclude-dir=".git" --exclude-dir="node_modules" .; then
+            echo "::error::Hard-coded API key detected in tracked file"
+            exit 1
+          fi
+          echo "No secrets found."
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            .pytest_cache/
+            logs/
+          retention-days: 14

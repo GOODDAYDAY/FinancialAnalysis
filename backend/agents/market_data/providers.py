@@ -3,52 +3,9 @@
 import logging
 from backend.state import MarketDataResult
 from backend.agents.market_data.mock import get_mock_market_data
+from backend.utils.ticker import normalize_for_yfinance as normalize_ticker
 
 logger = logging.getLogger(__name__)
-
-
-def normalize_ticker(ticker: str) -> list[str]:
-    """
-    Normalize a possibly-bare ticker into one or more yfinance-compatible
-    candidates, ordered by likelihood. yfinance requires exchange suffixes
-    for non-US stocks; orchestrator may extract bare numeric codes from
-    Chinese queries (e.g. "300565") that need ".SZ" appended.
-
-    Rules (Chinese A-share + HK):
-      - Already has a dot: passthrough as-is
-      - 6-digit starting with 6  -> Shanghai (.SS)
-      - 6-digit starting with 0  -> Shenzhen Main Board (.SZ)
-      - 6-digit starting with 3  -> Shenzhen ChiNext (.SZ)
-      - 6-digit starting with 4 or 8 -> Beijing (.BJ)
-      - 4-digit numeric          -> Hong Kong (.HK)
-      - Anything else (e.g. AAPL) -> passthrough as-is
-
-    Returns a list of candidates to try in order. The first that returns
-    non-empty history wins.
-    """
-    ticker = ticker.strip().upper()
-    if not ticker:
-        return []
-    if "." in ticker:
-        return [ticker]
-    if ticker.isdigit():
-        if len(ticker) == 6:
-            first = ticker[0]
-            if first == "6":
-                return [f"{ticker}.SS"]
-            if first in ("0", "3"):
-                return [f"{ticker}.SZ"]
-            if first in ("4", "8"):
-                return [f"{ticker}.BJ", f"{ticker}.SZ"]
-            # Unknown prefix: try both major exchanges
-            return [f"{ticker}.SS", f"{ticker}.SZ"]
-        if len(ticker) == 4:
-            return [f"{ticker}.HK"]
-        if len(ticker) == 5:
-            # HK 5-digit codes (rare) zero-padded
-            return [f"{ticker}.HK"]
-    # Letters (US tickers like AAPL) — yfinance accepts as-is
-    return [ticker]
 
 
 def fetch_market_data(ticker: str) -> MarketDataResult:

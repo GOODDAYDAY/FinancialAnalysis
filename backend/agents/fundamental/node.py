@@ -4,6 +4,7 @@ import logging
 from backend.llm_client import call_llm_structured
 from backend.state import FundamentalOutput
 from backend.utils.language import language_directive
+from backend.agents.fundamental.valuation_calc import compute_valuation_summary
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,9 @@ def fundamental_node(state: dict) -> dict:
     high52 = market_data.get("fifty_two_week_high", "N/A")
     low52 = market_data.get("fifty_two_week_low", "N/A")
 
+    # Algorithmic valuation anchors — gives the LLM numeric ground truth
+    valuation = compute_valuation_summary(market_data)
+
     system_prompt = (
         f"You are a financial analyst expert. Analyze the fundamental data for {ticker} "
         f"and provide a comprehensive assessment.\n\n"
@@ -46,6 +50,13 @@ def fundamental_node(state: dict) -> dict:
         f"- SMA20: {market_data.get('sma_20', 'N/A')}\n"
         f"- SMA50: {market_data.get('sma_50', 'N/A')}\n"
         f"- RSI14: {market_data.get('rsi_14', 'N/A')}\n"
+        f"\n--- Algorithmic Valuation Anchors ---\n"
+        f"- PEG ratio: {valuation['peg_ratio']}\n"
+        f"- DCF intrinsic value / share: {valuation['dcf_value_per_share']}\n"
+        f"- Margin of safety vs DCF: {valuation['margin_of_safety_pct']}%\n"
+        f"- Earnings yield: {valuation['earnings_yield_pct']}%\n"
+        f"- Model verdicts: {valuation['verdicts']}\n"
+        f"(Assumptions: {valuation['assumptions']})\n"
     )
 
     result = call_llm_structured(
@@ -56,12 +67,16 @@ def fundamental_node(state: dict) -> dict:
 
     logger.info("Fundamental for %s: health=%.1f", ticker, result.health_score)
 
+    fundamental_out = result.model_dump()
+    fundamental_out["valuation"] = valuation
+
     return {
-        "fundamental": result.model_dump(),
+        "fundamental": fundamental_out,
         "reasoning_chain": [{
             "agent": "fundamental",
             "health_score": result.health_score,
             "red_flags": result.red_flags,
+            "valuation_anchors": valuation,
             "summary": result.summary,
         }],
     }

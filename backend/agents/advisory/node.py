@@ -133,9 +133,35 @@ def advisory_node(state: dict) -> dict:
         system_prompt=system_prompt,
     )
 
+    # Post-processing decision override — LLMs default to HOLD even
+    # against strong numeric evidence. Compute a composite score from
+    # momentum/quant/fundamental/sentiment/risk and override the LLM
+    # verdict when it disagrees sharply with the math.
+    override = _compute_decision_override(
+        momentum=momentum,
+        quant=quant,
+        fundamental=fundamental,
+        sentiment=sentiment,
+        risk=risk,
+        debate_judge=debate_judge,
+    )
+    original_rec = result.recommendation
+    if override["forced_recommendation"] and override["forced_recommendation"] != original_rec:
+        logger.info(
+            "Advisory override: LLM said %s, algo says %s (composite=%.1f). Rule: %s",
+            original_rec, override["forced_recommendation"], override["composite_score"], override["rule"],
+        )
+        result.recommendation = override["forced_recommendation"]
+        result.confidence = max(result.confidence, override["confidence_floor"])
+        result.reasoning = (
+            f"[AUTO-OVERRIDE] LLM suggested {original_rec}; algorithmic composite score "
+            f"{override['composite_score']:+.1f} triggered rule '{override['rule']}' → "
+            f"{override['forced_recommendation']}.\n\n" + (result.reasoning or "")
+        )
+
     logger.info(
-        "Advisory for %s: %s (confidence=%.2f)",
-        ticker, result.recommendation, result.confidence,
+        "Advisory for %s: %s (confidence=%.2f, composite=%.1f)",
+        ticker, result.recommendation, result.confidence, override["composite_score"],
     )
 
     return {
@@ -148,5 +174,131 @@ def advisory_node(state: dict) -> dict:
             "supporting": result.supporting_factors,
             "dissenting": result.dissenting_factors,
             "debate_summary": result.debate_summary,
+            "composite_score": override["composite_score"],
+            "override_applied": override["forced_recommendation"] is not None and override["forced_recommendation"] != original_rec,
+            "override_rule": override["rule"],
         }],
     }
+
+
+def _compute_decision_override(
+    momentum: dict, quant: dict, fundamental: dict,
+    sentiment: dict, risk: dict, debate_judge: dict,
+) -> dict:
+    """
+    Weighted composite score from numeric dimensions, combined with
+    hard-rule triggers. Returns:
+
+      {
+        "composite_score":   float in [-100, +100],
+        "forced_recommendation": "buy" | "hold" | "sell" | None,
+        "confidence_floor": float,
+        "rule":              str,
+      }
+
+    Rationale: LLMs have strong HOLD bias. When numeric evidence is
+    lopsided, we override. When numeric evidence is ambiguous, we defer
+    to the LLM.
+    """
+    # Normalize components to [-100, +100]
+    mom_score = _safe_number(momentum.get("score"), default=0)
+    quant_score = _safe_number(quant.get("score"), default=0)
+    health = _safe_number(fundamental.get("health_score"), default=5)
+    fund_score = (health - 5) * 20                     # maps [1..10] -> [-80..+100]
+    sent_raw = _safe_number(sentiment.get("overall_score"), default=0)
+    sent_score = sent_raw * 100                        # [-1..+1] -> [-100..+100]
+    risk_raw = _safe_number(risk.get("risk_score"), default=5)
+    risk_score = (5 - risk_raw) * 20                   # higher risk → more negative
+
+    # Weighted composite (matches prompt weights)
+    composite = (
+        0.25 * mom_score +
+        0.20 * fund_score +
+        0.20 * quant_score +
+        0.15 * sent_score +
+        0.20 * risk_score
+    )
+
+    # Hard rule: strong recent rally → never sell
+    r5 = _safe_number((momentum.get("returns") or {}).get("5d"), default=0)
+    r20 = _safe_number((momentum.get("returns") or {}).get("20d"), default=0)
+    breakout = bool(momentum.get("breakout_20"))
+
+    # Debate judge strength (if present, influences confidence floor)
+    bull_strength = _safe_number(debate_judge.get("bull_strength"), default=50)
+    bear_strength = _safe_number(debate_judge.get("bear_strength"), default=50)
+
+    # Rules in priority order
+    if r5 >= 8 and mom_score >= 30 and composite >= 0:
+        return {
+            "composite_score": composite,
+            "forced_recommendation": "buy",
+            "confidence_floor": 0.65,
+            "rule": "strong_short_term_rally",
+        }
+
+    if composite >= 35:
+        return {
+            "composite_score": composite,
+            "forced_recommendation": "buy",
+            "confidence_floor": 0.60,
+            "rule": "composite_strongly_bullish",
+        }
+
+    if composite <= -35:
+        return {
+            "composite_score": composite,
+            "forced_recommendation": "sell",
+            "confidence_floor": 0.55,
+            "rule": "composite_strongly_bearish",
+        }
+
+    if breakout and r5 > 0 and composite >= 10:
+        return {
+            "composite_score": composite,
+            "forced_recommendation": "buy",
+            "confidence_floor": 0.55,
+            "rule": "breakout_with_positive_composite",
+        }
+
+    if r5 >= 5 and composite >= 0:
+        # Prevent SELL when stock is rising — LLM may still choose BUY/HOLD
+        return {
+            "composite_score": composite,
+            "forced_recommendation": None,
+            "confidence_floor": 0.0,
+            "rule": "rising_stock_no_sell_guard",
+        }
+
+    if bull_strength - bear_strength >= 25 and composite >= 10:
+        return {
+            "composite_score": composite,
+            "forced_recommendation": "buy",
+            "confidence_floor": 0.55,
+            "rule": "debate_bull_dominant",
+        }
+
+    if bear_strength - bull_strength >= 25 and composite <= -10:
+        return {
+            "composite_score": composite,
+            "forced_recommendation": "sell",
+            "confidence_floor": 0.55,
+            "rule": "debate_bear_dominant",
+        }
+
+    return {
+        "composite_score": composite,
+        "forced_recommendation": None,
+        "confidence_floor": 0.0,
+        "rule": "no_override",
+    }
+
+
+def _safe_number(value, default: float = 0.0) -> float:
+    """Coerce to float, falling back to default on None / str / bad data."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default

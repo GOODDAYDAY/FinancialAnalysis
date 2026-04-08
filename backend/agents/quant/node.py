@@ -13,6 +13,7 @@ from backend.agents.quant.signals import (
     compute_range_signals,
     compute_pe_signals,
 )
+from backend.agents.quant.advanced_signals import compute_advanced_signals
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,11 @@ def quant_node(state: dict) -> dict:
     signals.extend(compute_range_signals(
         price, market_data.get("fifty_two_week_high"), market_data.get("fifty_two_week_low")))
     signals.extend(compute_pe_signals(market_data.get("pe_ratio")))
+    # Advanced indicators fetched from raw OHLCV — degrades gracefully on failure
+    try:
+        signals.extend(compute_advanced_signals(ticker))
+    except Exception as e:
+        logger.warning("Advanced quant signals failed for %s: %s", ticker, e)
 
     # Compute composite score
     score = sum(s["weight"] for s in signals)

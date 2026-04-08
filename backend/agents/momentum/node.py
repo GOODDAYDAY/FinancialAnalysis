@@ -312,9 +312,9 @@ def _fetch_recent_series(ticker: str) -> tuple[list[float], list[float]]:
     """
     try:
         import yfinance as yf
-        from backend.agents.market_data.providers import normalize_ticker
+        from backend.utils.ticker import normalize_for_yfinance
 
-        candidates = normalize_ticker(ticker)
+        candidates = normalize_for_yfinance(ticker)
         for cand in candidates:
             try:
                 stock = yf.Ticker(cand)

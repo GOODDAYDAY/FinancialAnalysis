@@ -3,15 +3,10 @@
 import logging
 from backend.llm_client import call_llm_structured
 from backend.utils.language import detect_language
+from backend.security import sanitize_user_input
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-
-INJECTION_PATTERNS = [
-    "ignore previous", "ignore all instructions", "system prompt",
-    "you are now", "disregard", "forget your instructions",
-    "reveal your prompt", "show me your instructions",
-]
 
 
 class IntentResult(BaseModel):
@@ -24,22 +19,42 @@ class IntentResult(BaseModel):
 
 def orchestrator_node(state: dict) -> dict:
     """F-01, F-02, F-03: Parse intent, extract ticker, check for injection, detect language."""
-    query = state.get("user_query", "")
-    language = detect_language(query)
-    logger.info("Orchestrator processing query: %s (language=%s)", query[:100], language)
+    raw_query = state.get("user_query", "")
+    language = detect_language(raw_query)
 
-    # F-14: Prompt injection check (runs before LLM call)
-    query_lower = query.lower()
-    for pattern in INJECTION_PATTERNS:
-        if pattern in query_lower:
-            logger.warning("Prompt injection detected: pattern='%s'", pattern)
-            return {
-                "intent": "rejected",
-                "ticker": "",
-                "language": language,
-                "reasoning_chain": [{"agent": "orchestrator", "action": "rejected", "reason": "prompt injection detected"}],
-                "errors": [{"agent": "orchestrator", "error": "Prompt injection detected"}],
-            }
+    # F-14: Full security pipeline — injection detection, PII redaction,
+    # length cap, control-char stripping. Centralized in backend.security.
+    sanitized = sanitize_user_input(raw_query)
+    if sanitized.blocked:
+        logger.warning("Input blocked by sanitizer: %s", sanitized.reasons)
+        try:
+            from backend.observability.audit_trail import audit_log, AuditEvent, AuditKind
+            audit_log(AuditEvent(
+                kind=AuditKind.INPUT_BLOCKED,
+                agent="orchestrator",
+                message="; ".join(sanitized.reasons),
+                details={"injection_hits": sanitized.injection_matches},
+            ))
+        except Exception:
+            pass
+        return {
+            "intent": "rejected",
+            "ticker": "",
+            "language": language,
+            "reasoning_chain": [{
+                "agent": "orchestrator",
+                "action": "rejected",
+                "reason": "; ".join(sanitized.reasons),
+                "injection_hits": sanitized.injection_matches,
+            }],
+            "errors": [{"agent": "orchestrator", "error": f"Input rejected: {sanitized.reasons}"}],
+        }
+
+    if sanitized.reasons:
+        logger.info("Sanitizer applied: %s", sanitized.reasons)
+
+    query = sanitized.cleaned
+    logger.info("Orchestrator processing query: %s (language=%s)", query[:100], language)
 
     system_prompt = (
         "You are an intent classification agent for a stock investment research system. "
