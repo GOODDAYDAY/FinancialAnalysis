@@ -6,143 +6,126 @@
 
 ## 1. Background
 
-Grid trading is a quantitative strategy where a trader places buy orders at regular price intervals below the current market price and sell orders above it. Managing multiple grid levels manually is error-prone and time-consuming. Users need a pre-trade validation tool that, given a set of parameters, immediately shows every grid level's trade action, position change, cost basis, and cumulative P&L — so they can judge whether the strategy parameters are viable before placing any orders.
+Grid trading is a quantitative strategy where a trader places buy/sell orders at regular price intervals. Managing multiple grid levels manually is error-prone. Users need a ready-to-use `.xlsx` file where they fill in a few parameters and the entire grid table — price levels, actions, P&L, position, cost — recalculates automatically via Excel formulas.
 
-The tool is implemented as a Python script that generates a formatted `.xlsx` file. All parameters are adjustable via a configuration section at the top of the generated sheet.
+No Python, no scripts. Open the file, edit the parameter cells, done.
 
 ## 2. Target Users & Scenarios
 
-**Primary user**: Individual retail investor trading A-shares on a domestic broker platform.
+**Primary user**: Individual retail investor trading A-shares.
 
-**Core scenario**: Before setting up a grid strategy on a stock, the user fills in 9 parameters and runs the script to get a full grid table — checking whether each grid's net profit is positive, whether total capital is sufficient, and where the current price sits relative to the grid.
+**Core scenario**: User opens the Excel file, changes 9 yellow-highlighted parameter cells (e.g. current price, interval, shares per grid), and immediately sees the full grid table update with each level's action, commission, P&L, position, and avg cost.
 
-**Secondary scenario**: Adjusting parameters (e.g., narrowing the interval or increasing shares per grid) and re-running to compare outcomes.
+**Secondary scenario**: User tweaks parameters (e.g. narrower interval, larger position) and observes how net profit and capital requirements change in real time.
 
 ## 3. Functional Requirements
 
-### F-01 Parameter Configuration
+### F-01 Parameter Input Area
 
-The script accepts the following 9 parameters (all adjustable, with defaults matching the worked example):
+A dedicated block at the top of the sheet (rows 1–11) with labeled parameter cells. All parameter cells are **yellow-highlighted** and unlocked; all formula cells are locked (sheet protection optional).
 
-| Parameter | Type | Default | Description |
+| Parameter | Cell | Default | Description |
 |:---|:---|:---|:---|
-| `stock_name` | str | "泰达股份" | Display name of the stock |
-| `current_price` | float | 4.10 | Current market price (CNY) |
-| `grid_interval` | float | 0.20 | Price interval between grid levels (CNY) |
-| `shares_per_grid` | int | 1000 | Shares to trade at each grid level (must be multiple of 100) |
-| `fixed_fee` | float | 10.0 | Fixed commission per trade (CNY) |
-| `fee_rate` | float | 0.0001 | Proportional commission rate (e.g. 0.0001 = 0.01%) |
-| `initial_shares` | int | 5000 | Initial holdings in shares (directly input, not reverse-calculated) |
-| `upper_limit` | float | 5.00 | Grid upper boundary (CNY) |
-| `lower_limit` | float | 3.50 | Grid lower boundary (CNY) |
-| `initial_capital` | float | 50000 | Total available capital for reference (CNY) |
+| Stock Name | B2 | 泰达股份 | Display label only |
+| Current Price | B3 | 4.10 | Current market price (CNY) |
+| Grid Interval | B4 | 0.20 | Price step between grid levels (CNY) |
+| Shares per Grid | B5 | 1000 | Shares traded at each level (multiple of 100) |
+| Fixed Fee | B6 | 10.00 | Minimum commission per trade (CNY) |
+| Fee Rate | B7 | 0.0001 | Proportional commission (e.g. 0.0001 = 0.01%) |
+| Initial Shares Held | B8 | 5000 | Current holdings in shares |
+| Upper Limit | B9 | 5.00 | Highest grid price (CNY) |
+| Lower Limit | B10 | 3.50 | Lowest grid price (CNY) |
+| Initial Capital | B11 | 50000 | Total capital available (CNY) |
 
-- Main flow: Parameters defined as variables at the top of the script; user edits and re-runs to regenerate the Excel.
-- Error handling: Validate that `upper_limit > current_price > lower_limit`, `shares_per_grid` is a positive multiple of 100, `grid_interval > 0`, all fees ≥ 0.
-- Edge cases: If `grid_interval` is so small that net profit per grid is negative, emit a warning row in the summary.
+- All 10 parameters feed into the grid table and summary via cell references — no hardcoded values anywhere in the formulas.
 
-### F-02 Grid Level Auto-Generation
+### F-02 Grid Table (Auto-Generated via Formulas)
 
-Generate one row per grid level from `lower_limit` to `upper_limit` in steps of `grid_interval`.
+Starting from a fixed row (e.g. row 15), each row represents one grid level. The table expands automatically based on Upper/Lower Limit and Grid Interval. Rows beyond the valid range are hidden or left blank via `IF` formulas.
 
-Each row contains:
+**Columns:**
 
-| Column | Description |
+| Col | Header | Formula Logic |
+|:---|:---|:---|
+| A | Grid No. | `=IF(grid_price="","", ROW()-offset)` — sequential, blank when out of range |
+| B | Grid Price | `=Lower_Limit + (ROW()-offset) * Grid_Interval`, capped at Upper_Limit |
+| C | Action | `=IF(price<current,"BUY", IF(price>current,"SELL","CURRENT"))` |
+| D | Shares Traded | `=$B$5` (fixed reference to parameter) |
+| E | Trade Amount | `=B_price * D_shares` |
+| F | Commission | `=MAX($B$6, E_amount * $B$7)` |
+| G | Shares Change | `=IF(action="BUY", $B$5, IF(action="SELL", -$B$5, 0))` |
+| H | Cumulative Shares | Running sum from initial shares at CURRENT row outward |
+| I | Avg Cost Price | Weighted average, updated on BUY; unchanged on SELL |
+| J | Market Value | `=H_shares * B_price` |
+| K | Gross Profit | `=$B$4 * $B$5` (same for every row) |
+| L | Total Commission | `=F_buy_commission + F_sell_commission` (both legs) |
+| M | Net Profit | `=K - L` |
+| N | Cumulative P&L | Running sum of Net Profit |
+
+- The CURRENT row (where Action = "CURRENT") is highlighted **yellow**.
+- Rows where Net Profit ≤ 0 are highlighted **orange** via Conditional Formatting.
+- If Cumulative Shares would go negative on a SELL row, that cell shows "ERROR" in red via Conditional Formatting.
+
+### F-03 Summary Statistics Block
+
+A block between the parameter area and the grid table (rows 13–14 area), all formula-driven:
+
+| Label | Formula |
 |:---|:---|
-| Grid No. | Sequential index (1 = lowest price) |
-| Grid Price | Calculated price for this level (CNY) |
-| Action | BUY (price < current), SELL (price > current), CURRENT (nearest to current price, highlighted) |
-| Shares Traded | Fixed `shares_per_grid` for every grid |
-| Trade Amount | Grid Price × Shares Traded (CNY) |
-| Commission | `max(fixed_fee, Trade Amount × fee_rate)` (CNY) |
+| Total Grid Levels | `=COUNTIF(Action_col, "<>")` |
+| Net Profit per Grid | `=$B$4*$B$5 - 2*MAX($B$6, mid_price*$B$7)` |
+| Total Commission (one cycle) | `=SUMIF(...)` across all commission cells |
+| Min Oscillations to Break Even | `=CEILING(total_commission / net_per_grid, 1)` |
+| Minimum Required Capital | `=$B$10 * $B$5 * COUNTIF(Action_col,"BUY")` |
+| Capital Sufficiency | `=IF($B$11 >= min_capital, "OK ✓", "INSUFFICIENT ✗")` |
+| T+1 Note | Static text: "A股T+1: 当日买入不可当日卖出" |
 
-- Main flow: Prices generated bottom-up; direction determined by comparing grid price to `current_price`.
-- Edge cases: If a grid price lands exactly on `current_price`, mark as CURRENT. If rounding causes the last grid to exceed `upper_limit`, cap and note it.
+### F-04 Conditional Formatting Rules
 
-### F-03 Position & Cost Tracking
-
-Cumulative position state after each grid triggers (simulating sequential execution from the initial position downward for BUY grids and upward for SELL grids).
-
-| Column | Description |
-|:---|:---|
-| Shares Change | +`shares_per_grid` for BUY, −`shares_per_grid` for SELL |
-| Cumulative Shares | Running total of shares held |
-| Avg Cost Price | Weighted average cost of current holdings (CNY), updated on each BUY |
-| Market Value | Cumulative Shares × Grid Price (CNY) |
-
-- Main flow: Start from `initial_shares` at the CURRENT row; BUY grids below accumulate shares and update weighted avg cost; SELL grids above reduce shares (avg cost unchanged on sell).
-- Error handling: If cumulative shares would go negative (over-sell), flag the cell in red and stop the sell chain.
-- Edge cases: 100-share round-lot — `shares_per_grid` is validated at input; no partial lots generated.
-
-### F-04 P&L Calculation
-
-For each grid level, calculate profit assuming that grid executes as a round-trip (one buy + one sell one interval apart).
-
-| Column | Description |
-|:---|:---|
-| Gross Profit | `grid_interval × shares_per_grid` (CNY) — fixed per grid |
-| Total Commission | Commission for buy leg + Commission for sell leg |
-| Net Profit | Gross Profit − Total Commission |
-| Cumulative P&L | Running sum of Net Profit from the bottom grid upward |
-
-- Main flow: Gross profit is the same for every grid (fixed interval × fixed shares). Net profit shows whether the commission eats into the gain.
-- Error handling: If Net Profit ≤ 0, highlight that row in orange with a warning note "Fee exceeds gain".
-- Edge cases: The CURRENT row has no completed round-trip; mark its P&L columns as N/A.
-
-### F-05 Summary Statistics
-
-A separate summary block (above or below the grid table) showing:
-
-| Statistic | Formula |
-|:---|:---|
-| Total Grid Levels | Count of all generated rows |
-| Net Profit per Grid | `grid_interval × shares_per_grid − 2 × max(fixed_fee, mid_amount × fee_rate)` |
-| Total Commission (one full cycle) | Sum of all commissions for one complete up-down sweep |
-| Min Oscillations to Break Even | `ceil(total_commission_one_cycle / net_profit_per_grid)` |
-| Minimum Required Capital | `lower_limit × shares_per_grid × total_buy_grids` |
-| Capital Sufficiency | Flag: OK if `initial_capital ≥ Minimum Required Capital`, else INSUFFICIENT |
-
-- Main flow: Computed via formulas, displayed in a styled header block.
-- Edge cases: If net profit per grid is negative, show "WARNING: grid interval too narrow" instead of break-even count.
+| Condition | Range | Style |
+|:---|:---|:---|
+| Action = "CURRENT" | Entire row | Yellow fill |
+| Net Profit ≤ 0 | Entire row | Orange fill |
+| Cumulative Shares < 0 | Column H cell | Red fill, bold |
+| Action = "BUY" | Column C cell | Light green fill |
+| Action = "SELL" | Column C cell | Light red fill |
 
 ## 4. Non-functional Requirements
 
-- **Output format**: Single `.xlsx` file, one sheet. Parameters block at top (rows 1–12), summary block follows, then the grid table.
-- **Styling**: Header row bold + light blue fill; CURRENT row yellow highlight; negative net-profit rows orange; over-sell error rows red.
-- **Column widths**: Auto-fit to content.
-- **Dependency**: Python 3.8+, `openpyxl` library only (no pandas required).
-- **Execution**: Single script `tools/grid_trading_excel.py`; run with `python tools/grid_trading_excel.py`; output file written to `output/grid_trading_<stock_name>_<date>.xlsx`.
-- **Reproducibility**: Same parameters always produce identical output.
-- **T+1 note**: A comment cell in the summary block notes "A-share T+1 rule: shares bought today cannot be sold on the same day." No logic enforcement — user awareness only.
+- **File format**: `.xlsx` (Excel 2007+), single sheet named "网格计算".
+- **No macros / VBA**: Pure formulas and conditional formatting only.
+- **Max grid rows pre-built**: 100 rows (enough for any realistic range/interval combination). Rows outside the active range show blank via `IF` formulas.
+- **Column widths**: Pre-set to readable widths; headers bold.
+- **Deliverable**: A single file `tools/grid_trading_calculator.xlsx` committed to the repository.
 
 ## 5. Out of Scope
 
-- Historical backtesting against real price data
-- Automated trade execution or broker API integration
-- Multi-stock comparison
-- Dynamic rebalancing suggestions
-- Unequal grid intervals (all grids use the same fixed interval)
-- Partial fill handling
-- VBA macros or Excel add-ins
+- Python scripts or code generation
+- Historical backtesting
+- Multi-stock comparison sheets
+- Unequal grid intervals
+- Partial fill simulation
+- VBA / macros
 - Annual return estimation
 
 ## 6. Acceptance Criteria
 
 | ID | Feature | Condition | Expected Result |
 |:---|:---|:---|:---|
-| AC-01 | F-01 | Run with default parameters | Script completes without error; .xlsx file created in output/ |
-| AC-02 | F-02 | Default params (3.5–5.0, interval 0.2) | 8 grid rows generated: prices 3.5, 3.7, 3.9, 4.1, 4.3, 4.5, 4.7, 4.9 (±rounding) |
-| AC-03 | F-02 | Commission formula | At price 4.1, amount=4100; fee=max(10, 4100×0.0001)=max(10,0.41)=10.0 CNY |
-| AC-04 | F-03 | CURRENT row | Row for price 4.1 marked CURRENT, initial_shares=5000, avg cost=4.10 |
-| AC-05 | F-03 | BUY grid at 3.9 | Cumulative shares = 5000+1000=6000; avg cost = (5000×4.10+1000×3.90)/6000 ≈ 4.067 |
-| AC-06 | F-04 | Net profit per grid | Gross=0.2×1000=200; commission buy+sell=10+10=20; net=180 CNY |
-| AC-07 | F-04 | Fee-exceeds-gain warning | Set interval=0.01, fee=10 → net<0 → row highlighted orange |
-| AC-08 | F-05 | Capital sufficiency | initial_capital=50000, min_required=3.5×1000×4=14000 → shows OK |
-| AC-09 | F-01 | Validation | shares_per_grid=150 → ValueError "shares_per_grid must be a multiple of 100" |
-| AC-10 | F-01 | Validation | upper_limit=3.0, lower_limit=5.0 → ValueError "upper_limit must be greater than lower_limit" |
+| AC-01 | F-01 | Open file with defaults | Grid table shows 8 rows (3.5 to 4.9, step 0.2) |
+| AC-02 | F-02 | Default params | Row at 4.1 shows CURRENT, yellow highlight |
+| AC-03 | F-02 | Commission at 4.1 | max(10, 4100×0.0001) = 10.00 CNY |
+| AC-04 | F-02 | BUY row at 3.9 | Shares change = +1000, cumulative = 6000 |
+| AC-05 | F-02 | Avg cost at 3.9 | (5000×4.10 + 1000×3.90)/6000 ≈ 4.067 |
+| AC-06 | F-02 | Net profit per grid | 0.2×1000 − 2×10 = 180 CNY |
+| AC-07 | F-04 | Change interval to 0.01 | Net profit < 0 → row turns orange |
+| AC-08 | F-03 | Capital sufficiency default | 50000 ≥ 3.5×1000×4 = 14000 → shows "OK ✓" |
+| AC-09 | F-01 | Change Upper Limit to 6.0 | Grid table automatically extends to include 5.2, 5.4… 5.8 |
+| AC-10 | F-01 | Change Grid Interval to 0.10 | Grid table shows 16 rows instead of 8 |
 
 ## 7. Change Log
 
 | Version | Date | Changes | Affected Scope | Reason |
 |:---|:---|:---|:---|:---|
 | v1 | 2026-04-12 | Initial version | ALL | - |
+| v2 | 2026-04-12 | Change deliverable from Python script to pure Excel file with formulas | ALL | User clarification: no Python needed |
