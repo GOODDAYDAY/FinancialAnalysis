@@ -1,0 +1,42 @@
+@startuml
+start
+:User sets 9 parameters in script;
+:Run: python tools/grid_trading_excel.py;
+
+if (Parameters valid?) then (no)
+    :Raise ValueError with message;
+    stop
+endif
+
+:Generate grid prices from lower_limit\nto upper_limit in steps of grid_interval;
+
+:For each grid level;
+repeat
+    :Calculate Trade Amount\n= Grid Price x shares_per_grid;
+    :Calculate Commission\n= max(fixed_fee, Amount x fee_rate);
+    if (Grid Price < current_price) then (yes)
+        :Action = BUY;
+        :Update cumulative shares (+shares_per_grid);
+        :Recalculate weighted avg cost;
+    elseif (Grid Price == current_price) then (yes)
+        :Action = CURRENT (highlight yellow);
+        :Use initial_shares as starting position;
+    else (SELL)
+        :Action = SELL;
+        :Update cumulative shares (-shares_per_grid);
+        if (Cumulative shares < 0?) then (yes)
+            :Flag cell RED - over-sell error;
+            :Stop sell chain;
+        endif
+    endif
+    :Calculate Net Profit\n= grid_interval x shares - 2 x commission;
+    if (Net Profit <= 0?) then (yes)
+        :Highlight row ORANGE\n+ note "Fee exceeds gain";
+    endif
+    :Update Cumulative P&L;
+repeat while (More grid levels?)
+
+:Calculate Summary Statistics;
+:Write styled .xlsx to output/ directory;
+stop
+@enduml

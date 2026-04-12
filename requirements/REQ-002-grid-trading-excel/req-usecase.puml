@@ -1,0 +1,33 @@
+@startuml
+left to right direction
+actor "Retail Investor" as user
+
+rectangle "Grid Trading Excel Calculator" {
+    usecase "Configure Parameters\n(F-01)" as UC1
+    usecase "Generate Grid Table\n(F-02)" as UC2
+    usecase "View Position & Cost\n(F-03)" as UC3
+    usecase "View P&L per Grid\n(F-04)" as UC4
+    usecase "View Summary Statistics\n(F-05)" as UC5
+    usecase "Re-run with New Parameters" as UC6
+    usecase "Export .xlsx File" as UC7
+}
+
+user --> UC1
+user --> UC6
+UC1 ..> UC2 : <<include>>
+UC2 ..> UC3 : <<include>>
+UC2 ..> UC4 : <<include>>
+UC2 ..> UC5 : <<include>>
+UC1 ..> UC7 : <<include>>
+UC6 ..> UC1 : <<include>>
+
+note right of UC3
+  Tracks cumulative shares,
+  avg cost price, market value
+end note
+
+note right of UC4
+  Highlights rows where
+  net profit <= 0 (orange)
+end note
+@enduml
