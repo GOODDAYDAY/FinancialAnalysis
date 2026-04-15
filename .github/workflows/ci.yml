@@ -53,8 +53,9 @@ jobs:
 
       - name: Static secret scan
         run: |
-          # Block any hard-coded DeepSeek / OpenAI / generic sk- key in tracked files
-          if grep -rE "sk-[a-zA-Z0-9]{20,}" --include="*.py" --include="*.md" --include="*.yml" --include="*.json" --exclude-dir=".git" --exclude-dir="node_modules" .; then
+          # Block any hard-coded DeepSeek / OpenAI / generic sk- key in tracked files.
+          # tests/ is excluded: it legitimately contains synthetic keys as detector fixtures.
+          if grep -rE "sk-[a-zA-Z0-9]{20,}" --include="*.py" --include="*.md" --include="*.yml" --include="*.json" --exclude-dir=".git" --exclude-dir="node_modules" --exclude-dir="tests" .; then
             echo "::error::Hard-coded API key detected in tracked file"
             exit 1
           fi
