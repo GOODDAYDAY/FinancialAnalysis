@@ -1,96 +1,44 @@
-name: Deploy
+name: Deploy to swe5008 server
 
 on:
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: "Git ref to deploy (branch, tag, or SHA)"
-        required: false
-        default: main
   push:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy to self-hosted server
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    # Only run if CI succeeds on the same commit. For push events CI
-    # runs separately; for workflow_dispatch we allow manual dispatch.
-    concurrency:
-      group: deploy-production
-      cancel-in-progress: false
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.ref || github.ref }}
 
-      - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
-
-      - name: Trust remote host key
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
-      - name: Rsync code to server
+      - name: Deploy via SSH
         env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
         run: |
-          rsync -avz --delete \
-            --exclude='.git' \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            --exclude='.pytest_cache' \
-            --exclude='logs/' \
-            --exclude='.env' \
-            --exclude='tests/screenshots/' \
-            ./ "${SERVER_USER}@${SERVER_HOST}:${DEPLOY_PATH}/"
-
-      - name: Install / upgrade on remote
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        run: |
-          ssh "${SERVER_USER}@${SERVER_HOST}" << 'EOF'
-            set -euo pipefail
-            cd "${{ secrets.DEPLOY_PATH }}"
-            chmod +x scripts/*.sh
-            ./scripts/install_linux.sh --upgrade
-          EOF
-
-      - name: Restart service
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-        run: |
-          ssh "${SERVER_USER}@${SERVER_HOST}" "sudo systemctl restart ai-research.service || true"
-          ssh "${SERVER_USER}@${SERVER_HOST}" "sudo systemctl status ai-research.service --no-pager || true"
-
-      - name: Smoke test
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        run: |
-          ssh "${SERVER_USER}@${SERVER_HOST}" "cd ${DEPLOY_PATH} && ./scripts/smoke_test.sh"
-
-      - name: Audit deploy event
-        if: always()
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          STATUS: ${{ job.status }}
-          SHA: ${{ github.sha }}
-          ACTOR: ${{ github.actor }}
-        run: |
-          ssh "${SERVER_USER}@${SERVER_HOST}" "mkdir -p ${DEPLOY_PATH}/logs && echo '{\"ts\":\"'$(date -Iseconds)'\",\"kind\":\"deploy\",\"status\":\"${STATUS}\",\"sha\":\"${SHA}\",\"actor\":\"${ACTOR}\"}' >> ${DEPLOY_PATH}/logs/audit_trail.jsonl"
+          ssh -i ~/.ssh/id_ed25519 \
+              -o StrictHostKeyChecking=yes \
+              -o IdentitiesOnly=yes \
+              -p "${SSH_PORT:-22}" \
+              "${SSH_USER}@${SSH_HOST}" \
+              'set -e; cd /home/ubuntu/ai-project && git fetch --prune origin && git reset --hard origin/main && bash deploy/deploy.sh'
