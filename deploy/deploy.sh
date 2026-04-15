@@ -24,14 +24,29 @@ fi
 echo "[deploy] restarting $SERVICE ..."
 sudo -n /bin/systemctl restart "$SERVICE"
 
+web_healthy=0
 for i in $(seq 1 15); do
     if curl -sf -m 3 http://127.0.0.1:8501/_stcore/health >/dev/null; then
-        echo "[deploy] healthy after $((i*2))s"
-        exit 0
+        echo "[deploy] web healthy after $((i*2))s"
+        web_healthy=1
+        break
     fi
     sleep 2
 done
+if [ "$web_healthy" -ne 1 ]; then
+    echo "[deploy] web health check failed after 30s"
+    sudo -n /bin/systemctl status "$SERVICE" --no-pager | tail -20
+    exit 1
+fi
 
-echo "[deploy] health check failed after 30s"
-sudo -n /bin/systemctl status "$SERVICE" --no-pager | tail -20
-exit 1
+SCHEDULER="ai-investment-scheduler"
+echo "[deploy] restarting $SCHEDULER ..."
+sudo -n /bin/systemctl restart "$SCHEDULER"
+sleep 3
+if sudo -n /bin/systemctl is-active "$SCHEDULER" | grep -qx active; then
+    echo "[deploy] $SCHEDULER active"
+else
+    echo "[deploy] $SCHEDULER NOT active"
+    sudo -n /bin/systemctl status "$SCHEDULER" --no-pager | tail -20
+    exit 1
+fi
