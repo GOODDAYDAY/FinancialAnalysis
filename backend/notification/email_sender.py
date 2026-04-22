@@ -69,6 +69,7 @@ def send_email(
     html_body: str,
     config: EmailConfig | None = None,
     text_body: str | None = None,
+    dry_run: bool = False,
 ) -> tuple[bool, str]:
     """
     Send an email via QQ SMTP.
@@ -78,6 +79,7 @@ def send_email(
         html_body: HTML body content
         config: Optional EmailConfig. If None, loads from env.
         text_body: Optional plain-text alternative
+        dry_run: If True, validate and build email but do not send.
 
     Returns:
         (success, message)
@@ -99,6 +101,10 @@ def send_email(
     if text_body:
         message.attach(MIMEText(text_body, "plain", "utf-8"))
     message.attach(MIMEText(html_body, "html", "utf-8"))
+
+    if dry_run:
+        logger.info("Dry run — email would be sent to %s with subject '%s'", config.recipients, subject)
+        return True, f"[DRY RUN] Would send to {len(config.recipients)} recipient(s)"
 
     try:
         context = ssl.create_default_context()
