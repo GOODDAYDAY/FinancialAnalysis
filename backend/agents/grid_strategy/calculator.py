@@ -169,6 +169,9 @@ def _calculate_profit_per_cycle(
 
 def _shares_for_budget(price: float, budget: float) -> int:
     """Compute number of shares (A-share lot = 100) that fit in budget."""
+    import math
+    if not math.isfinite(price) or price <= 0:
+        return 0
     raw = int(budget / price)
     # Round down to multiples of 100 (A-share lot size)
     return (raw // 100) * 100
