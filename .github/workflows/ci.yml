@@ -545,7 +545,7 @@ jobs:
           fi
           echo "✓ No hard-coded secrets found."
 
-      - name: Model supply-chain: verify pinned model ID unchanged
+      - name: "Model supply-chain: verify pinned model ID unchanged"
         run: |
           python - <<'EOF'
           import subprocess, sys
