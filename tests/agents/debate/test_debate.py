@@ -1,6 +1,7 @@
 """Real API tests for Debate Agent (DeepSeek LLM)."""
 
-from backend.agents.debate.node import debate_node, should_continue_debate
+from backend.agents.debate.node import debate_node
+from backend.agents.debate_judge.node import should_continue_debate_with_judge
 from backend.agents.market_data.node import market_data_node
 
 
@@ -48,13 +49,15 @@ class TestDebateRounds:
 
 
 class TestDebateRouting:
-    """Conditional edge logic (no LLM needed)."""
+    """Conditional edge logic via debate_judge (no LLM needed)."""
 
-    def test_round_0_continues(self):
-        assert should_continue_debate({"debate_round": 0}) == "debate"
+    def test_continue_verdict_routes_to_debate(self):
+        state = {"debate_judge": {"verdict": "continue"}, "debate_round": 2}
+        assert should_continue_debate_with_judge(state) == "debate"
 
-    def test_round_1_continues(self):
-        assert should_continue_debate({"debate_round": 1}) == "debate"
+    def test_concluded_verdict_routes_to_risk(self):
+        state = {"debate_judge": {"verdict": "concluded"}, "debate_round": 2}
+        assert should_continue_debate_with_judge(state) == "risk"
 
-    def test_round_2_stops(self):
-        assert should_continue_debate({"debate_round": 2}) == "risk"
+    def test_missing_judge_routes_to_risk(self):
+        assert should_continue_debate_with_judge({"debate_round": 2}) == "risk"

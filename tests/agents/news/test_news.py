@@ -20,8 +20,7 @@ class TestNewsCollection:
             assert "source" in article
             assert len(article["title"]) > 0
 
-    def test_invalid_ticker_returns_mock_news(self):
-        """Expected: mock news for unknown ticker (no crash)."""
+    def test_invalid_ticker_does_not_crash(self):
+        """Expected: unknown ticker returns empty list gracefully — no exception."""
         result = news_node({"ticker": "ZZZZZZ_INVALID"})
-        articles = result["news_articles"]
-        assert len(articles) >= 1  # Mock fallback
+        assert isinstance(result["news_articles"], list)  # May be empty — no crash

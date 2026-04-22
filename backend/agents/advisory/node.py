@@ -4,6 +4,8 @@ import logging
 from backend.llm_client import call_llm_structured
 from backend.state import RecommendationOutput
 from backend.utils.language import language_directive
+from backend.config import settings
+from backend import mlflow_utils
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +166,10 @@ def advisory_node(state: dict) -> dict:
         ticker, result.recommendation, result.confidence, override["composite_score"],
     )
 
+    # MLflow experiment tracking
+    _log_advisory_to_mlflow(ticker, result, override, market_data, sentiment,
+                            fundamental, quant, risk, macro, sector, momentum)
+
     return {
         "recommendation": result.model_dump(),
         "reasoning_chain": [{
@@ -179,6 +185,41 @@ def advisory_node(state: dict) -> dict:
             "override_rule": override["rule"],
         }],
     }
+
+
+def _log_advisory_to_mlflow(ticker, result, override, market_data, sentiment,
+                             fundamental, quant, risk, macro, sector, momentum):
+    """Log advisory output to MLflow for experiment tracking and audit."""
+    try:
+        run_name = f"{ticker}-{result.recommendation}"
+        with mlflow_utils.start_mlflow_run(
+            experiment_name=settings.mlflow_experiment_name,
+            run_name=run_name,
+            tracking_uri=settings.mlflow_tracking_uri or None,
+        ) as run:
+            if run is None:
+                return  # mlflow not available
+            mlflow_utils.log_params({
+                "ticker": ticker,
+                "recommendation": result.recommendation,
+                "investment_horizon": result.investment_horizon,
+                "composite_score": override["composite_score"],
+                "override_applied": bool(override["forced_recommendation"] and override["forced_recommendation"] != result.recommendation),
+            })
+            mlflow_utils.log_metrics({
+                "confidence": result.confidence,
+                "composite_score": override["composite_score"],
+            })
+            # Log key inputs as context
+            mlflow_utils.log_params({
+                "market_price": market_data.get("current_price", "N/A"),
+                "sentiment_score": sentiment.get("overall_score", "N/A"),
+                "fundamental_health": fundamental.get("health_score", "N/A"),
+                "quant_score": quant.get("score", "N/A"),
+                "risk_score": risk.get("risk_score", "N/A"),
+            })
+    except Exception as e:
+        logger.warning("MLflow logging in advisory failed: %s", e)
 
 
 def _compute_decision_override(

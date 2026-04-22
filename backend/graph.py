@@ -173,6 +173,7 @@ def run_analysis(query: str) -> dict:
         "ticker": "",
         "intent": "",
         "language": "en",
+        "exchange": "UNKNOWN",
         "market_data": {},
         "macro_env": {},
         "sector": {},

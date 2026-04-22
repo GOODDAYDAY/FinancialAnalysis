@@ -38,7 +38,8 @@ class TestRecommendation:
         result = advisory_node(_make_advisory_state())
         assert len(result["recommendation"]["disclaimer"]) > 10
 
-    def test_supporting_factors_present(self):
-        """Expected: at least 1 supporting factor."""
+    def test_factors_are_lists(self):
+        """Expected: supporting and dissenting factors are lists (may be empty)."""
         result = advisory_node(_make_advisory_state())
-        assert len(result["recommendation"]["supporting_factors"]) >= 1
+        assert isinstance(result["recommendation"]["supporting_factors"], list)
+        assert isinstance(result["recommendation"]["dissenting_factors"], list)

@@ -20,6 +20,28 @@ logger = logging.getLogger(__name__)
 def sector_node(state: dict) -> dict:
     """Fetch sector / industry context."""
     ticker = state.get("ticker", "")
+    exchange = state.get("exchange", "UNKNOWN")
+
+    # Sector / industry rankings via akshare cover A-share boards only.
+    # For overseas stocks, skip akshare calls — downstream gets empty sector data.
+    if exchange not in ("SH", "SZ", "BJ"):
+        logger.info("Sector context skipped for %s (exchange=%s, not A-share)", ticker, exchange)
+        return {
+            "sector": {
+                "stock_industry": {},
+                "stock_sector_row": None,
+                "top_sectors": [],
+                "bottom_sectors": [],
+                "top_concepts": [],
+                "summary": "Sector context (A-share industry boards) not applicable for overseas stocks.",
+            },
+            "reasoning_chain": [{
+                "agent": "sector",
+                "skipped": True,
+                "reason": f"exchange={exchange}, not an A-share",
+            }],
+        }
+
     logger.info("Fetching sector context for %s", ticker)
 
     sectors = fetch_sector_ranking(limit=20)
@@ -64,6 +86,7 @@ def sector_node(state: dict) -> dict:
             "top_sectors": [s["name"] for s in top_sectors],
             "top_concepts": [c["name"] for c in top_concepts],
             "summary": summary[:300],
+            "exchange": exchange,
         }],
     }
 

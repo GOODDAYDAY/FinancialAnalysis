@@ -14,11 +14,27 @@ logger = logging.getLogger(__name__)
 def announcement_node(state: dict) -> dict:
     """Fetch company announcements and financial summary via akshare."""
     ticker = state.get("ticker", "")
+    exchange = state.get("exchange", "UNKNOWN")
+
     if not ticker:
         return {
             "announcements": [],
             "financial_summary": {},
             "errors": [{"agent": "announcement", "error": "No ticker provided"}],
+        }
+
+    # Announcements via akshare cover Chinese A-share disclosures only.
+    # For HK / US stocks, skip — downstream agents handle empty gracefully.
+    if exchange not in ("SH", "SZ", "BJ"):
+        logger.info("Announcements skipped for %s (exchange=%s, not A-share)", ticker, exchange)
+        return {
+            "announcements": [],
+            "financial_summary": {},
+            "reasoning_chain": [{
+                "agent": "announcement",
+                "skipped": True,
+                "reason": f"exchange={exchange}, not an A-share",
+            }],
         }
 
     logger.info("Fetching announcements for %s", ticker)

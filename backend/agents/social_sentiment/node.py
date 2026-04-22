@@ -19,10 +19,32 @@ logger = logging.getLogger(__name__)
 def social_sentiment_node(state: dict) -> dict:
     """Fetch social sentiment data from Chinese financial platforms."""
     ticker = state.get("ticker", "")
+    exchange = state.get("exchange", "UNKNOWN")
+
     if not ticker:
         return {
             "social_sentiment": {},
             "errors": [{"agent": "social_sentiment", "error": "No ticker provided"}],
+        }
+
+    # Social sentiment via akshare (Eastmoney Guba) covers Chinese A-share
+    # retail investor chatter only. For HK / US stocks, skip.
+    if exchange not in ("SH", "SZ", "BJ"):
+        logger.info("Social sentiment skipped for %s (exchange=%s, not A-share)", ticker, exchange)
+        return {
+            "social_sentiment": {
+                "comment_sentiment": {},
+                "hot_rank": {},
+                "is_trending": False,
+                "trending_rank": None,
+                "hot_stocks_sample": [],
+                "summary": "Social sentiment (Eastmoney Guba) not available for overseas stocks.",
+            },
+            "reasoning_chain": [{
+                "agent": "social_sentiment",
+                "skipped": True,
+                "reason": f"exchange={exchange}, not an A-share",
+            }],
         }
 
     logger.info("Fetching social sentiment for %s", ticker)

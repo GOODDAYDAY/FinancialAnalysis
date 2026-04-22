@@ -15,6 +15,31 @@ logger = logging.getLogger(__name__)
 
 def macro_env_node(state: dict) -> dict:
     """Fetch macro environment snapshot from akshare."""
+    exchange = state.get("exchange", "UNKNOWN")
+    ticker = state.get("ticker", "")
+
+    # Macro environment via akshare tracks Chinese market indices only.
+    # For HK / US stocks, skip the akshare call — downstream agents will
+    # see empty macro and proceed without China market context.
+    if exchange not in ("SH", "SZ", "BJ"):
+        logger.info("Macro env skipped for %s (exchange=%s, not A-share)", ticker, exchange)
+        return {
+            "macro_env": {
+                "indices": {},
+                "primary_regime": "N/A (overseas stock)",
+                "overall_regime": "N/A (overseas stock)",
+                "bull_count": 0,
+                "bear_count": 0,
+                "sideways_count": 0,
+                "summary": "Macro context (Chinese indices) not applicable for overseas stocks.",
+            },
+            "reasoning_chain": [{
+                "agent": "macro_env",
+                "skipped": True,
+                "reason": f"exchange={exchange}, not an A-share",
+            }],
+        }
+
     logger.info("Fetching macro environment snapshot")
 
     indices = fetch_index_snapshot()
@@ -66,5 +91,6 @@ def macro_env_node(state: dict) -> dict:
             "primary_regime": primary_regime,
             "index_count": len(indices),
             "summary": summary[:300],
+            "exchange": exchange,
         }],
     }

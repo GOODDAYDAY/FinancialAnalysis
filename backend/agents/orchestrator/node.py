@@ -3,6 +3,7 @@
 import logging
 from backend.llm_client import call_llm_structured
 from backend.utils.language import detect_language
+from backend.utils.ticker import classify_exchange, is_a_share
 from backend.security import sanitize_user_input
 from pydantic import BaseModel, Field
 
@@ -71,17 +72,27 @@ def orchestrator_node(state: dict) -> dict:
     )
 
     ticker = result.ticker.upper().strip() if result.ticker else ""
-    logger.info("Intent classified: intent=%s, ticker=%s", result.intent, ticker)
+
+    # F-01b: Auto-classify exchange from ticker — determines which data
+    # sources are applicable. China-only agents (macro_env, sector,
+    # announcement, social_sentiment) skip execution for overseas stocks.
+    exchange = classify_exchange(ticker) if ticker else "UNKNOWN"
+    is_china = is_a_share(ticker)
+
+    logger.info("Intent classified: intent=%s, ticker=%s, exchange=%s", result.intent, ticker, exchange)
 
     return {
         "intent": result.intent,
         "ticker": ticker,
         "language": language,
+        "exchange": exchange,
         "reasoning_chain": [{
             "agent": "orchestrator",
             "intent": result.intent,
             "ticker": ticker,
             "language": language,
+            "exchange": exchange,
+            "is_a_share": is_china,
             "explanation": result.explanation,
         }],
     }
