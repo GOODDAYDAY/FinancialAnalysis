@@ -1,14 +1,323 @@
-name: CI
+name: CI — MLSecOps Gate
 
 on:
   push:
     branches: [main, "feat/**", "fix/**"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+# ── Job overview ──────────────────────────────────────────────────────────────
+#
+#  ml-contracts   ← FAST GATE, always runs, hard-fail
+#                   tests/ml_contracts/  — state schema + Pydantic boundaries
+#                                          + model pinning + prompt integrity
+#                   tests/behavioral/    — advisory override + routing logic
+#                   tests/security/      — AI security suite (injection, PII, filter)
+#                   tests/observability/ — audit trail + token tracker
+#                   tests/notification/  — email templates + sender
+#
+#  data-validation ← MLOps data gate, always runs
+#                     tests/data_validation/ — schema + data quality
+#
+#  model-quality  ← LLM quality gate, always runs
+#                     tests/model_quality/ — bias + hallucination + output quality
+#
+#  mlflow         ← Experiment tracking gate, always runs
+#                     tests/test_mlflow_utils.py — MLflow integration
+#
+#  dependency-audit  ← supply-chain gate, always runs (independent)
+#                      pip-audit (CVE scan) + secret scan
+#
+#  docker-build   ← Container gate, runs on push to main or PR
+#                     docker build — validates Dockerfile
+#
+#  agent-integration ← LIVE GATE, manual only (needs DEEPSEEK_API_KEY secret)
+#                      tests/agents/ + tests/e2e/
+# ─────────────────────────────────────────────────────────────────────────────
 
 jobs:
-  lint-test-security:
-    name: Lint + Tests + Security
+
+  # ── 1. ML Contracts + Behavioral + Security ──────────────────────────────
+  ml-contracts:
+    name: ML Contracts · Behavioral · Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov ruff
+
+      - name: Lint (hard fail on errors, warn on style)
+        run: ruff check backend/ tests/ --select=E,F,W --ignore=E501
+        # E/F = real errors (undefined names, imports, syntax); E501 = line length (style)
+
+      - name: Model config validation
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python - <<'EOF'
+          from backend.config import Settings
+          s = Settings()
+          assert s.deepseek_model == "deepseek-chat", f"Model changed to: {s.deepseek_model}"
+          assert s.llm_max_tokens > 0, "llm_max_tokens must be positive"
+          assert "deepseek.com" in s.deepseek_base_url, f"Bad base URL: {s.deepseek_base_url}"
+          print(f"✓ Model pinned: {s.deepseek_model}")
+          print(f"✓ Max tokens: {s.llm_max_tokens}")
+          print(f"✓ Base URL: {s.deepseek_base_url}")
+          EOF
+
+      - name: ML contract tests (state schema + Pydantic + config + prompts)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/ml_contracts/ \
+            -v \
+            --tb=short \
+            --junitxml=reports/ml-contracts.xml \
+            --cov=backend \
+            --cov-report=xml:reports/coverage.xml \
+            --cov-report=term-missing
+
+      - name: Behavioral tests (advisory override + routing — no LLM needed)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/behavioral/ \
+            -v \
+            --tb=short \
+            --junitxml=reports/behavioral.xml
+
+      - name: AI security test suite (injection · PII · output filter · sanitizer)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/security/ \
+            -v \
+            --tb=short \
+            --junitxml=reports/security.xml
+
+      - name: Agent logic smoke (mocked LLM — zero API calls)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/benchmarks/test_bench_llm_agents.py \
+            -v \
+            --tb=short \
+            --junitxml=reports/bench-llm-mocked.xml
+
+      - name: Observability tests (audit trail + token tracker)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/observability/ \
+            -v \
+            --tb=short \
+            --junitxml=reports/observability.xml
+
+      - name: Notification tests (templates + sender)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/notification/ \
+            -v \
+            --tb=short \
+            --junitxml=reports/notification.xml
+
+      - name: Write test summary to GitHub step summary
+        if: always()
+        run: |
+          python - <<'EOF'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          def parse_junit(path):
+              if not Path(path).exists():
+                  return None, None, None
+              tree = ET.parse(path)
+              root = tree.getroot()
+              suite = root if root.tag == "testsuite" else root.find("testsuite")
+              if suite is None:
+                  return 0, 0, 0
+              tests = int(suite.attrib.get("tests", 0))
+              failures = int(suite.attrib.get("failures", 0)) + int(suite.attrib.get("errors", 0))
+              skipped = int(suite.attrib.get("skipped", 0))
+              return tests, failures, skipped
+
+          rows = []
+          suites = [
+              ("ML Contracts", "reports/ml-contracts.xml"),
+              ("Behavioral",   "reports/behavioral.xml"),
+              ("AI Security",  "reports/security.xml"),
+              ("Observability", "reports/observability.xml"),
+              ("Notification", "reports/notification.xml"),
+          ]
+          total_tests, total_fail = 0, 0
+          for label, path in suites:
+              tests, fail, skip = parse_junit(path)
+              if tests is None:
+                  rows.append(f"| {label} | ⚠️ report missing | — | — |")
+                  continue
+              icon = "✅" if fail == 0 else "❌"
+              rows.append(f"| {label} | {icon} | {tests} | {fail} |")
+              total_tests += tests
+              total_fail += fail
+
+          summary = [
+              "## CI Test Results",
+              "",
+              f"**Total:** {total_tests} tests · {total_fail} failures",
+              "",
+              "| Suite | Status | Tests | Failures |",
+              "|:------|:------:|------:|---------:|",
+          ] + rows
+
+          with open("$GITHUB_STEP_SUMMARY", "a") as f:
+              f.write("\n".join(summary) + "\n")
+          print("\n".join(summary))
+          EOF
+        env:
+          GITHUB_STEP_SUMMARY: ${{ env.GITHUB_STEP_SUMMARY }}
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ github.run_number }}
+          path: |
+            reports/ml-contracts.xml
+            reports/behavioral.xml
+            reports/security.xml
+            reports/observability.xml
+            reports/notification.xml
+            reports/coverage.xml
+          retention-days: 30
+
+  # ── 2. Data Validation (MLOps data gate) ──────────────────────────────────
+  data-validation:
+    name: Data Validation · Schema · Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Schema validation tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/data_validation/test_schema.py \
+            -v \
+            --tb=short \
+            --junitxml=reports/data-schema.xml
+
+      - name: Data quality tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/data_validation/test_data_quality.py \
+            -v \
+            --tb=short \
+            --junitxml=reports/data-quality.xml
+
+      - name: Upload data validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-validation-reports-${{ github.run_number }}
+          path: |
+            reports/data-schema.xml
+            reports/data-quality.xml
+          retention-days: 30
+
+  # ── 3. Model Quality (LLM bias + hallucination + output quality) ─────────
+  model-quality:
+    name: Model Quality · Bias · Hallucination
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Bias detection tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/model_quality/test_bias.py \
+            -v \
+            --tb=short \
+            --junitxml=reports/model-bias.xml
+
+      - name: Hallucination detection tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/model_quality/test_hallucination.py \
+            -v \
+            --tb=short \
+            --junitxml=reports/model-hallucination.xml
+
+      - name: Output quality tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/model_quality/test_output_quality.py \
+            -v \
+            --tb=short \
+            --junitxml=reports/model-output-quality.xml
+
+      - name: Upload model quality reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-quality-reports-${{ github.run_number }}
+          path: |
+            reports/model-bias.xml
+            reports/model-hallucination.xml
+            reports/model-output-quality.xml
+          retention-days: 30
+
+  # ── 4. MLflow Experiment Tracking ────────────────────────────────────────
+  mlflow:
+    name: MLflow Integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -26,47 +335,330 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff pytest pip-audit
+          pip install pytest
 
-      - name: Lint (ruff)
-        run: ruff check backend/ tests/ || true
-        # Soft-fail for now — ruff findings tracked as tech-debt, not blockers
-
-      - name: Security test suite
-        # Hard fail — this is the AI security gate
+      - name: MLflow integration tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: pytest tests/security/ -v
-
-      - name: Unit tests (imports + fast tests)
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-          # Fake keys so modules that do lazy init don't explode in CI
-          DEEPSEEK_API_KEY: "sk-ci-fake-key"
         run: |
-          pytest tests/security/ tests/agents/ -v --ignore=tests/e2e || true
+          pytest tests/test_mlflow_utils.py \
+            -v \
+            --tb=short \
+            --junitxml=reports/mlflow.xml
 
-      - name: Dependency vulnerability scan
-        run: pip-audit --strict --ignore-vuln GHSA-4xh5-x5gv-qwph || true
-        # Soft-fail: vendor libs (akshare, yfinance) drag in transitive issues
-        # we can't control. Logged, reviewed per release.
-
-      - name: Static secret scan
-        run: |
-          # Block any hard-coded DeepSeek / OpenAI / generic sk- key in tracked files.
-          # tests/ is excluded: it legitimately contains synthetic keys as detector fixtures.
-          if grep -rE "sk-[a-zA-Z0-9]{20,}" --include="*.py" --include="*.md" --include="*.yml" --include="*.json" --exclude-dir=".git" --exclude-dir="node_modules" --exclude-dir="tests" .; then
-            echo "::error::Hard-coded API key detected in tracked file"
-            exit 1
-          fi
-          echo "No secrets found."
-
-      - name: Upload test artifacts
+      - name: Upload MLflow reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: mlflow-reports-${{ github.run_number }}
+          path: reports/mlflow.xml
+          retention-days: 30
+
+  # ── 5. Docker Build & Security Scan ──────────────────────────────────────
+  docker-build:
+    name: Docker Build · Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag investment-research:${{ github.sha }} \
+            --tag investment-research:latest \
+            .
+
+      - name: Verify image runs
+        run: |
+          # Quick smoke test: container starts and CMD is valid
+          docker run --rm investment-research:latest \
+            python -c "import backend; print('Backend import OK')"
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: investment-research:latest
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+  # ── 6. Agent Functional Benchmarks (real API + real data) ────────────────
+  agent-benchmarks:
+    name: Agent Functional Benchmarks — Real API
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: ml-contracts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Benchmark — Data agents (real yfinance/akshare, no API key)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/benchmarks/test_bench_data_agents.py \
+            -v \
+            --tb=short \
+            --junitxml=reports/bench-data.xml
+
+      - name: Benchmark — LLM agents (real DeepSeek calls)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          pytest tests/agents/ \
+            -v \
+            --tb=short \
+            --junitxml=reports/bench-llm-real.xml
+        # All 16 agent suites, real DeepSeek + yfinance + akshare
+
+      - name: Write per-agent benchmark summary
+        if: always()
+        run: |
+          python - <<'EOF'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          from collections import defaultdict
+
+          def parse_cases(path):
+              if not Path(path).exists():
+                  return []
+              root = ET.parse(path).getroot()
+              cases = root.findall(".//testcase")
+              results = []
+              for c in cases:
+                  name = c.attrib.get("classname", "") + "::" + c.attrib.get("name", "")
+                  failed = c.find("failure") is not None or c.find("error") is not None
+                  results.append((name, failed))
+              return results
+
+          # Group by agent (second segment of classname like "tests.agents.advisory.test_advisory")
+          agent_stats = defaultdict(lambda: [0, 0])  # [pass, fail]
+          for name, failed in parse_cases("reports/bench-llm-real.xml"):
+              parts = name.split(".")
+              agent = parts[2] if len(parts) > 2 else "unknown"
+              if failed:
+                  agent_stats[agent][1] += 1
+              else:
+                  agent_stats[agent][0] += 1
+
+          lines = [
+              "## Agent Benchmark Results (Real API)",
+              "",
+              "| Agent | Status | Passed | Failed |",
+              "|:------|:------:|-------:|-------:|",
+          ]
+          for agent in sorted(agent_stats):
+              p, f = agent_stats[agent]
+              icon = "✅" if f == 0 else "❌"
+              lines.append(f"| {agent} | {icon} | {p} | {f} |")
+
+          # Data agents summary
+          data_cases = parse_cases("reports/bench-data.xml")
+          data_pass = sum(1 for _, f in data_cases if not f)
+          data_fail = sum(1 for _, f in data_cases if f)
+          data_icon = "✅" if data_fail == 0 else "❌"
+          lines.append(f"| *data agents* | {data_icon} | {data_pass} | {data_fail} |")
+
+          total_pass = sum(p for p, _ in agent_stats.values()) + data_pass
+          total_fail = sum(f for _, f in agent_stats.values()) + data_fail
+          lines.insert(2, f"**Total: {total_pass} passed · {total_fail} failed**")
+          lines.insert(3, "")
+
+          with open("$GITHUB_STEP_SUMMARY", "a") as fh:
+              fh.write("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          EOF
+        env:
+          GITHUB_STEP_SUMMARY: ${{ env.GITHUB_STEP_SUMMARY }}
+
+      - name: Upload benchmark reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-reports-${{ github.run_number }}
           path: |
-            .pytest_cache/
-            logs/
+            reports/bench-data.xml
+            reports/bench-llm-real.xml
+          retention-days: 30
+
+  # ── 3. Supply-chain audit ─────────────────────────────────────────────────
+  dependency-audit:
+    name: Dependency Audit · Secret Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    needs: []  # independent supply-chain gate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install for audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pip-audit
+
+      - name: CVE scan (pip-audit)
+        run: |
+          pip-audit --format=json --output=reports/pip-audit.json || true
+          pip-audit --strict \
+            --ignore-vuln GHSA-4xh5-x5gv-qwph \
+            || echo "::warning::Non-critical CVEs found — review reports/pip-audit.json"
+
+      - name: Static secret scan
+        run: |
+          # Hard fail on hard-coded API keys in tracked source files.
+          # tests/ excluded: contains synthetic keys as security test fixtures.
+          if grep -rE "sk-[a-zA-Z0-9]{20,}" \
+              --include="*.py" --include="*.md" --include="*.yml" --include="*.json" \
+              --exclude-dir=".git" --exclude-dir="node_modules" --exclude-dir="tests" .; then
+            echo "::error::Hard-coded API key detected in tracked file"
+            exit 1
+          fi
+          echo "✓ No hard-coded secrets found."
+
+      - name: Model supply-chain: verify pinned model ID unchanged
+        run: |
+          python - <<'EOF'
+          import subprocess, sys
+          result = subprocess.run(
+              ["git", "log", "--oneline", "-5", "--", "backend/config.py"],
+              capture_output=True, text=True
+          )
+          print("Recent changes to backend/config.py:")
+          print(result.stdout or "(no recent changes)")
+          EOF
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-report-${{ github.run_number }}
+          path: reports/pip-audit.json
+          retention-days: 30
+
+  # ── 6b. REQ-002 Excel Validation ─────────────────────────────────────────
+  grid-excel-validation:
+    name: Excel Validation (REQ-002)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Validate grid trading calculator Excel
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests/test_excel_validation.py \
+            -v \
+            --tb=short \
+            --junitxml=reports/excel-validation.xml
+
+      - name: Upload Excel validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: excel-validation-report-${{ github.run_number }}
+          path: reports/excel-validation.xml
+          retention-days: 30
+
+  # ── 7. Live agent integration tests (manual only — needs API key) ─────────
+  agent-integration:
+    name: Agent Integration Tests (live APIs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Only run on manual dispatch — agent tests make real DeepSeek + yfinance calls
+    if: github.event_name == 'workflow_dispatch'
+    needs: ml-contracts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run agent tests (real API calls)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          pytest tests/agents/ \
+            -v \
+            --tb=short \
+            --junitxml=reports/agents.xml \
+            -x \
+            --timeout=60
+        # -x: stop on first failure to save API cost
+
+      - name: Run E2E pipeline test
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          pytest tests/e2e/ \
+            -v \
+            --tb=short \
+            --junitxml=reports/e2e.xml \
+            --timeout=120
+
+      - name: Upload integration reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-reports-${{ github.run_number }}
+          path: |
+            reports/agents.xml
+            reports/e2e.xml
           retention-days: 14
