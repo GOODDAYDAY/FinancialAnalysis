@@ -17,8 +17,6 @@ from typing import Any
 from backend.feature_store.definitions import (
     FEATURES,
     FEATURE_SCHEMA_VERSION,
-    Feature,
-    get_feature,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,6 +107,9 @@ def _compute_stochastic(
 def _compute_obv_slope(
     closes: list[float], volumes: list[float], lookback: int = 10
 ) -> float | None:
+    # +11 buffer: OBV series needs N-1 deltas to build full array;
+    # we need enough history to compute the last `lookback` values
+    # for slope calculation (lookback values + lookback-1 prior deltas + small margin).
     if len(closes) < lookback + 11 or len(volumes) < lookback + 11:
         return None
     obv = [0.0]
@@ -179,6 +180,16 @@ def compute_features(ticker: str, ohlcv: dict | None = None) -> dict[str, Any]:
 
     # Metadata
     result["feature_schema_version"] = FEATURE_SCHEMA_VERSION
+
+    # Fix #3: Validate that every defined FEATURE has a value in result.
+    # Catches the case where a feature is added to FEATURES but forgotten
+    # in _COMPUTE_FNS or the pass-through list.
+    missing = [name for name in FEATURES if name not in result]
+    if missing:
+        logger.warning(
+            "Feature store: %d features defined but not present in result for %s: %s",
+            len(missing), ticker, missing,
+        )
 
     return result
 

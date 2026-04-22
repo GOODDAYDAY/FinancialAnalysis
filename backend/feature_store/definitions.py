@@ -9,7 +9,6 @@ and inference use the same definitions.
 """
 
 from dataclasses import dataclass
-from typing import Callable, Any
 
 FEATURE_SCHEMA_VERSION = "v1.0.0"
 

@@ -72,6 +72,20 @@ def fetch_market_data(ticker: str) -> MarketDataResult:
         change = (current_price - prev_close) if current_price and prev_close else None
         change_pct = (change / prev_close * 100) if change and prev_close else None
 
+        # Expose raw OHLCV arrays for the Feature Store (avoids duplicate yfinance calls)
+        raw_ohlcv = {
+            "closes": closes,
+            "highs": hist["High"].values.tolist(),
+            "lows": hist["Low"].values.tolist(),
+            "volumes": hist["Volume"].values.tolist(),
+            "current_price": round(current_price, 2) if current_price else None,
+            "volume": int(hist["Volume"].iloc[-1]) if not hist["Volume"].empty else None,
+            "pe_ratio": info.get("trailingPE"),
+            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+            "price_change_pct": round(change_pct, 2) if change_pct else None,
+        }
+
         return MarketDataResult(
             ticker=ticker,
             current_price=round(current_price, 2) if current_price else None,
@@ -93,6 +107,8 @@ def fetch_market_data(ticker: str) -> MarketDataResult:
             technical_signals=signals,
             is_mock=False,
             data_source="yfinance",
+            # Fix #6: attach raw OHLCV for Feature Store reuse
+            raw_ohlcv=raw_ohlcv,
         )
     except Exception as e:
         logger.warning("Failed to fetch market data for %s: %s. Using mock.", ticker, e)

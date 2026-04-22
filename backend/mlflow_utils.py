@@ -39,17 +39,19 @@ def _get_mlflow():
 def start_mlflow_run(experiment_name: str = "investment-research", run_name: Optional[str] = None,
                      tracking_uri: Optional[str] = None):
     """
-    Context manager that starts an MLflow run and yields the active run object.
-    On exit, the run is automatically ended.
+    Context manager that starts (or reuses) an MLflow run.
 
-    Usage:
-        with start_mlflow_run("investment-research", run_name="AAPL-20260422") as run:
-            log_metric("accuracy", 0.85)
+    If a run is already active (e.g. started by graph.run_analysis()),
+    yields the existing run instead of creating a duplicate.
     """
     mlflow = _get_mlflow()
     if mlflow is None:
-        # Yield a dummy object so callers don't need to check
         yield None
+        return
+
+    # Fix #1: Reuse existing run if one is already active
+    if mlflow.active_run() is not None:
+        yield mlflow.active_run()
         return
 
     if tracking_uri:
@@ -124,7 +126,7 @@ def log_artifact(local_path: str, artifact_path: Optional[str] = None) -> None:
 
 
 def log_text(text: str, artifact_file: str) -> None:
-    """Log a text string as an artifact file."""
+    """Log a text string as an artifact file. Cleanly removes temp file even on failure."""
     mlflow = _get_mlflow()
     if mlflow is None:
         return
@@ -133,8 +135,10 @@ def log_text(text: str, artifact_file: str) -> None:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             f.write(text)
             tmp_path = f.name
-        mlflow.log_artifact(tmp_path, artifact_path=artifact_file)
-        os.unlink(tmp_path)
+        try:
+            mlflow.log_artifact(tmp_path, artifact_path=artifact_file)
+        finally:
+            os.unlink(tmp_path)
     except Exception as e:
         logger.warning("mlflow.log_text(%s) failed: %s", artifact_file, e)
 

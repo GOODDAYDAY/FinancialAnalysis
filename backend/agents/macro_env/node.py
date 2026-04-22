@@ -8,7 +8,7 @@ is in a strong bull regime, SELL may be the wrong call.
 """
 
 import logging
-from backend.agents.macro_env.sources import fetch_index_snapshot, fetch_north_bound_flow
+from backend.agents.macro_env.sources import fetch_index_snapshot
 
 logger = logging.getLogger(__name__)
 

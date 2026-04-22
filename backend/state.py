@@ -33,6 +33,8 @@ class MarketDataResult(BaseModel):
     technical_signals: list[str] = Field(default_factory=list)
     is_mock: bool = False
     data_source: str = "live"
+    # Raw OHLCV arrays for Feature Store (avoids duplicate yfinance calls)
+    raw_ohlcv: Optional[dict] = None
 
 
 class NewsArticle(BaseModel):
@@ -136,6 +138,9 @@ class ResearchState(TypedDict, total=False):
 
     # Grid Strategy
     grid_strategy: dict
+
+    # Feature Store — pre-computed features from market_data, consumed by quant
+    features: dict
 
     # Debate
     debate_history: Annotated[list[dict], operator.add]

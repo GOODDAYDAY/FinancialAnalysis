@@ -21,7 +21,6 @@ import logging
 from pydantic import BaseModel, Field
 from backend.llm_client import call_llm_structured
 from backend.utils.language import language_directive
-from backend.config import settings
 
 logger = logging.getLogger(__name__)
 

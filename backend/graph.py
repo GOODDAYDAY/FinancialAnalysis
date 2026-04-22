@@ -29,6 +29,7 @@ default reducer is safe.
 """
 
 import logging
+from contextlib import contextmanager
 from langgraph.graph import StateGraph, END
 
 from backend.state import ResearchState
@@ -165,6 +166,12 @@ def get_graph():
     return _graph
 
 
+@contextmanager
+def _null_context():
+    """No-op context manager for fallback when MLflow is unavailable."""
+    yield None
+
+
 def run_analysis(query: str) -> dict:
     """Run the full analysis pipeline for a user query."""
     graph = get_graph()
@@ -191,6 +198,7 @@ def run_analysis(query: str) -> dict:
         "debate_judge": {},
         "risk": {},
         "recommendation": {},
+        "features": {},
         "reasoning_chain": [],
         "errors": [],
     }
@@ -205,7 +213,18 @@ def run_analysis(query: str) -> dict:
     except Exception:
         pass
 
-    result = graph.invoke(initial_state, config={"recursion_limit": 50})
+    # Fix #1: One MLflow run per analysis — agents log to this single run
+    try:
+        from backend import mlflow_utils
+        ticker_hint = query.split()[0] if query.split() else "unknown"
+        ctx_mgr = mlflow_utils.start_mlflow_run(
+            run_name=f"analysis-{ticker_hint}",
+        )
+    except Exception:
+        ctx_mgr = _null_context()
+
+    with ctx_mgr:
+        result = graph.invoke(initial_state, config={"recursion_limit": 50})
 
     # Attach observability summary for UI / audit consumption
     try:

@@ -20,13 +20,18 @@ def market_data_node(state: dict) -> dict:
     result = fetch_market_data(ticker)
     data = result.model_dump()
 
-    # Compute features via the Feature Store for training/inference consistency
+    # Fix #6: Compute features once using raw OHLCV from providers
+    # (avoids duplicate yfinance call — quant reads features from state)
     try:
-        features = compute_all_features(ticker)
+        raw_ohlcv = result.raw_ohlcv or {}
+        features = compute_all_features(ticker, ohlcv=raw_ohlcv if raw_ohlcv else None)
         data["feature_schema_version"] = features.get("feature_schema_version", "unknown")
+        # Expose full features dict for downstream agents (quant, etc.)
+        data["features"] = features
     except Exception as e:
         logger.warning("Feature Store compute failed for %s: %s", ticker, e)
         data["feature_schema_version"] = "unknown"
+        data["features"] = {}
 
     logger.info(
         "Market data for %s: price=%.2f, source=%s, feature_schema=%s",
@@ -36,6 +41,7 @@ def market_data_node(state: dict) -> dict:
 
     return {
         "market_data": data,
+        "features": data.get("features", {}),
         "reasoning_chain": [{
             "agent": "market_data",
             "ticker": ticker,
