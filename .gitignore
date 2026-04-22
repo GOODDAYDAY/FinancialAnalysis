@@ -1,15 +1,27 @@
 __pycache__/
 *.pyc
+*.pyo
 *.egg-info/
-logs/
-tests/screenshots/
 dist/
 build/
 .pytest_cache/
 .streamlit/
 
+# Logs
+logs/
+*.log
+
+# Test reports
+reports/
+
+# MLflow (local experiment data)
+mlflow.db
+mlruns/
+mlartifacts/
+
 # Environment and secrets
 .env
+.env.*.local
 .venv/
 
 # User schedule config (contains real email addresses)
@@ -18,10 +30,6 @@ config/schedule.json
 # IDE
 .idea/
 .claude/
-
-# Docker (not used)
-Dockerfile
-docker-compose.yml
 
 # Build artifacts
 multi_agent_investment_research.egg-info/

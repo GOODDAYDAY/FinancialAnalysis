@@ -12,6 +12,9 @@ dependencies = [
     "duckduckgo-search>=6.0.0",
     "streamlit>=1.30.0",
     "structlog>=24.0.0",
+    "pydantic-settings>=2.0.0",
+    "openpyxl>=3.1.0",
+    "mlflow>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -19,6 +22,12 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+python_classes = ["Test*", "Benchmark*"]
+python_files = ["test_*.py", "bench_*.py"]
+python_functions = ["test_*", "bench_*"]
 
 [tool.setuptools.packages.find]
 include = ["backend*", "frontend*"]

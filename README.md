@@ -1,6 +1,6 @@
 # Financial Analysis — Multi-Agent Investment Research System
 
-> An explainable, multi-agent AI system for stock investment research, built with **LangGraph** and **DeepSeek**. Eleven specialized agents — including a Bull-vs-Bear debate engine, a pure-algorithmic Quant referee, and a Grid Trading Strategy planner — collaborate to produce transparent buy/hold/sell recommendations for Chinese A-shares, Hong Kong, and global stocks.
+> An explainable, multi-agent AI system for stock investment research, built with **LangGraph** and **DeepSeek**. Sixteen specialized agents — including a parallel data-collection fan-out, a Bull-vs-Bear debate engine with LLM judge, a pure-algorithmic Quant referee, and a Grid Trading Strategy planner — collaborate to produce transparent buy/hold/sell recommendations for Chinese A-shares, Hong Kong, and global stocks.
 
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.3+-green.svg)](https://github.com/langchain-ai/langgraph)
@@ -11,8 +11,9 @@
 
 ## Highlights
 
-- **11 specialized agents** organized in a LangGraph state machine, each living in its own sub-package for clean ownership
-- **Bull vs Bear debate** — two LLM agents argue 2 rounds with rebuttals, citing real data points from upstream agents
+- **16 specialized agents** wired in a LangGraph state machine (+ 1 standalone follow-up agent), each living in its own sub-package for clean ownership
+- **Parallel data fan-out** — market data, macro environment, sector rankings, news, announcements, and social sentiment fetched concurrently (~3× wall-clock speedup)
+- **Bull vs Bear debate with LLM judge** — debate agent argues 2–5 rounds; a separate judge agent decides whether the debate is deep enough to conclude
 - **Pure-algorithmic Quant Agent** — no LLM, computes MA/RSI/MACD signals as a "data referee" alongside the AI debaters
 - **Grid Trading Strategy Agent** — proposes 4 strategy variants (short / medium / long-term / accumulation) with fee-aware profit math, A-share lot sizing, and monthly return estimates
 - **Free China-accessible data sources** — yfinance, akshare (东方财富/同花顺/财新), DuckDuckGo News. No paid APIs required.
@@ -26,7 +27,7 @@
 
 ## Architecture
 
-### Pipeline (13 steps, 11 agents)
+### Pipeline (17 nodes, 16 agents + 1 standalone follow-up)
 
 ```
 User Query
@@ -35,52 +36,54 @@ User Query
 ┌─────────────────┐
 │  Orchestrator   │  Intent classification, ticker extraction, prompt-injection defense
 └────────┬────────┘
-         ▼
+         ▼ (fan-out — 6 nodes run in parallel)
+┌──────────────────────────────────────────────────────┐
+│  Market Data   │  Macro Env    │  Sector              │
+│  (yfinance)    │  (akshare     │  (akshare industry   │
+│                │   indices)    │   / concept ranks)   │
+├──────────────────────────────────────────────────────┤
+│  News          │  Announcement │  Social Sentiment    │
+│  (yfinance +   │  (akshare     │  (akshare Eastmoney  │
+│   DuckDuckGo)  │   filings)    │   股吧)              │
+└──────────────────────────────────────────────────────┘
+         ▼ (fan-in)
 ┌─────────────────┐
-│  Market Data    │  yfinance: price, OHLCV, SMA/RSI/MACD computation
+│   Sentiment     │  DeepSeek LLM: per-article relevance-weighted sentiment
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│      News       │  yfinance + DuckDuckGo, dedup by title hash
+│   Fundamental   │  DeepSeek LLM: health score 1-10, DCF/PEG anchors, red flags
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│  Announcement   │  akshare: company filings, financial summary (ROE, revenue)
+│    Momentum     │  Pure algorithms: multi-horizon returns, breakout, volume surge
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│ Social Sentiment│  akshare: Eastmoney 股吧 comment scores, hot rankings
+│      Quant      │  Pure algorithms: MA/RSI/MACD/Bollinger/ATR/OBV composite score
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│   Sentiment     │  DeepSeek LLM: explainable sentiment with key factors
+│  Grid Strategy  │  Pure algorithms: 4 grid variants with fee-aware profit math
+└────────┬────────┘
+         ▼
+┌─────────────────┐     ┌─────────────────┐
+│     Debate      │◄───►│  Debate Judge   │  LLM judge: 2–5 rounds, decides depth
+│  (Bull ↔ Bear)  │     │  (LLM)          │
+└────────┬────────┘     └─────────────────┘
+         ▼
+┌─────────────────┐
+│      Risk       │  DeepSeek LLM: risk score 1-10, enumerated risk factors
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│   Fundamental   │  DeepSeek LLM: financial health score, red flags
+│    Advisory     │  DeepSeek LLM: numeric override + weighted synthesis
 └────────┬────────┘
          ▼
-┌─────────────────┐
-│      Quant      │  Pure algorithms: composite -100..+100 score, no LLM
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│  Grid Strategy  │  Pure algorithms: 4 grid variants with fee-aware profit
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│     Debate      │  Bull LLM ↔ Bear LLM, 2 rounds with rebuttals (self-loop)
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│      Risk       │  DeepSeek LLM: risk scoring, factor enumeration
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│    Advisory     │  DeepSeek LLM: weighted synthesis, final recommendation
-└────────┬────────┘
-         ▼
-   buy / hold / sell + confidence + reasoning chain
+   buy / hold / sell + confidence + full reasoning chain
+
+   [Follow-up]  Standalone agent called from UI; not in main graph.
+                Answers detail questions with full prior-run context.
 ```
 
 ### Agent details
@@ -89,17 +92,21 @@ User Query
 |:---|:---|:---|:---|:---|
 | 1 | **Orchestrator** | Yes | — | Intent (stock_query / chitchat / out_of_scope), ticker extraction, prompt injection block |
 | 2 | **Market Data** | No | yfinance | Real-time price, OHLCV, SMA(20/50/200), RSI(14), MACD; mock fallback |
-| 3 | **News** | No | yfinance + DuckDuckGo | Multi-source news, title-hash dedup |
-| 4 | **Announcement** | No | akshare (Caixin / Eastmoney) | Company news, financial abstract (ROE, revenue, net profit, debt ratio) |
-| 5 | **Social Sentiment** | No | akshare (Eastmoney 股吧) | Retail investor comment score, hot stock rankings |
-| 6 | **Sentiment** | Yes | — | Per-article sentiment, key factors, explainable reasoning |
-| 7 | **Fundamental** | Yes | — | Health score 1-10, peer comparison, red flag detection |
-| 8 | **Quant** | No | — | Pure-math composite score from MA / RSI / MACD / 52W range / P/E |
-| 9 | **Grid Strategy** | No | — | 4 grid trading proposals: range, grids, shares, profit per cycle, monthly return |
-| 10 | **Debate** | Yes | — | Bull vs Bear, 2 rounds, structured arguments + rebuttals |
-| 11 | **Risk** | Yes | — | Risk score 1-10, enumerated risk factors, level label |
-| 12 | **Advisory** | Yes | — | Weighted synthesis: buy/hold/sell + confidence + horizon |
-| + | **Follow-up** | Yes | — | Answers detail questions using preserved context from all agents |
+| 3 | **Macro Env** | No | akshare (CSI 300, SSE, etc.) | Index snapshot, regime detection (BULL / BEAR / SIDEWAYS), north-bound flow |
+| 4 | **Sector** | No | akshare (industry / concept) | Sector & concept rankings; maps this stock to its industry and relative performance |
+| 5 | **News** | No | yfinance + DuckDuckGo | Multi-source news, title-hash dedup |
+| 6 | **Announcement** | No | akshare (Caixin / Eastmoney) | Company filings, financial abstract (ROE, revenue, net profit, debt ratio) |
+| 7 | **Social Sentiment** | No | akshare (Eastmoney 股吧) | Retail investor comment score, hot stock rankings |
+| 8 | **Sentiment** | Yes | — | Per-article relevance-weighted sentiment, key factors, explainable reasoning |
+| 9 | **Fundamental** | Yes | — | Health score 1-10, DCF/PEG numeric anchors, peer comparison, red flag detection |
+| 10 | **Momentum** | No | — | Pure-math multi-horizon returns (3d/5d/10d/20d/60d), breakout, volume surge, RS vs CSI 300 |
+| 11 | **Quant** | No | — | Classical + advanced signals (MA/RSI/MACD/Bollinger/ATR/Stochastic/OBV), composite -100..+100 |
+| 12 | **Grid Strategy** | No | — | 4 grid trading proposals: range, grids, shares, profit per cycle, monthly return |
+| 13 | **Debate** | Yes | — | Bull vs Bear structured arguments + rebuttals, dynamic 2–5 rounds |
+| 14 | **Debate Judge** | Yes | — | Evaluates debate depth each round; decides continue or conclude |
+| 15 | **Risk** | Yes | — | Risk score 1-10, enumerated risk factors, level label |
+| 16 | **Advisory** | Yes | — | Numeric override + weighted synthesis: buy/hold/sell + confidence + horizon |
+| + | **Follow-up** | Yes | — | Standalone (not in main graph); answers detail questions with full prior-run context |
 
 ---
 
@@ -205,13 +212,19 @@ FinancialAnalysis/
 │   ├── config.py                   # Pydantic settings, .env loading
 │   ├── state.py                    # ResearchState TypedDict + Pydantic models
 │   ├── llm_client.py               # DeepSeek wrapper with retry-with-reprompt
-│   ├── graph.py                    # LangGraph StateGraph builder (11 agents)
+│   ├── graph.py                    # LangGraph StateGraph builder (16 agents + followup standalone)
 │   ├── agents/                     # Each agent in its own sub-package
 │   │   ├── orchestrator/
 │   │   ├── market_data/
 │   │   │   ├── node.py
 │   │   │   ├── providers.py        # yfinance live data
 │   │   │   └── mock.py             # Demo fallback data
+│   │   ├── macro_env/
+│   │   │   ├── node.py
+│   │   │   └── sources.py          # akshare index snapshots + north-bound flow
+│   │   ├── sector/
+│   │   │   ├── node.py
+│   │   │   └── sources.py          # akshare sector / concept rankings
 │   │   ├── news/
 │   │   │   ├── node.py
 │   │   │   └── sources.py          # yfinance + DuckDuckGo + dedup
@@ -223,16 +236,20 @@ FinancialAnalysis/
 │   │   │   └── sources.py          # akshare Eastmoney 股吧
 │   │   ├── sentiment/
 │   │   ├── fundamental/
+│   │   │   ├── node.py
+│   │   │   └── valuation_calc.py   # DCF / PEG / margin-of-safety numeric anchors
+│   │   ├── momentum/               # Pure-math multi-horizon momentum, no LLM
 │   │   ├── quant/
 │   │   │   ├── node.py
-│   │   │   └── signals.py          # MA / RSI / MACD / range / P/E signal computation
+│   │   │   └── signals.py          # MA / RSI / MACD / Bollinger / ATR / OBV
 │   │   ├── grid_strategy/
 │   │   │   ├── node.py
 │   │   │   └── calculator.py       # Grid math, fee model, A-share lot sizing
 │   │   ├── debate/
+│   │   ├── debate_judge/           # LLM judge: decides when debate reaches sufficient depth
 │   │   ├── risk/
 │   │   ├── advisory/
-│   │   └── followup/               # Follow-up Q&A with full context
+│   │   └── followup/               # Standalone — called from UI, not in main graph
 │   └── notification/
 │       ├── email_sender.py         # QQ SMTP_SSL on port 465
 │       └── templates.py            # HTML email templates
@@ -254,14 +271,18 @@ FinancialAnalysis/
 │   ├── agents/                     # One test sub-package per agent
 │   │   ├── orchestrator/
 │   │   ├── market_data/
+│   │   ├── macro_env/
+│   │   ├── sector/
 │   │   ├── news/
 │   │   ├── announcement/
 │   │   ├── social_sentiment/
 │   │   ├── sentiment/
 │   │   ├── fundamental/
+│   │   ├── momentum/
 │   │   ├── quant/
 │   │   ├── grid_strategy/
 │   │   ├── debate/
+│   │   ├── debate_judge/
 │   │   ├── risk/
 │   │   ├── advisory/
 │   │   └── followup/
