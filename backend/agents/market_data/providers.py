@@ -18,7 +18,6 @@ def fetch_market_data(ticker: str) -> MarketDataResult:
             logger.warning("Cannot normalize empty ticker, using mock")
             return get_mock_market_data(ticker)
 
-        stock = None
         info = None
         hist = None
         used_ticker = None
@@ -29,7 +28,6 @@ def fetch_market_data(ticker: str) -> MarketDataResult:
                 stock_try = yf.Ticker(cand)
                 hist_try = stock_try.history(period="1y")
                 if hist_try is not None and not hist_try.empty:
-                    stock = stock_try
                     hist = hist_try
                     info = stock_try.info
                     used_ticker = cand

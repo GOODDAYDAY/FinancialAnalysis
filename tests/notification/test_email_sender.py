@@ -1,7 +1,5 @@
 """Tests for QQ email sender (no real SMTP send)."""
 
-import os
-import pytest
 from backend.notification.email_sender import EmailConfig, send_email
 
 

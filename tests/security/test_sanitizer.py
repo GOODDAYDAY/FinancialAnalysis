@@ -4,7 +4,6 @@ hits first. If this passes, the downstream agents should never see raw
 attack strings.
 """
 
-import pytest
 
 from backend.security import sanitize_user_input
 from backend.security.sanitizer import MAX_INPUT_LENGTH

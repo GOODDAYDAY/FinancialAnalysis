@@ -19,7 +19,7 @@ import pytest
 
 openpyxl = pytest.importorskip("openpyxl")
 
-from openpyxl import load_workbook
+from openpyxl import load_workbook  # noqa: E402
 
 TOOLS_DIR = os.path.join(os.path.dirname(__file__), "..", "tools")
 EXCEL_PATH = os.path.join(TOOLS_DIR, "grid_trading_calculator.xlsx")

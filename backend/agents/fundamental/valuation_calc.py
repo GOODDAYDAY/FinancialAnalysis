@@ -88,7 +88,6 @@ def compute_valuation_summary(market_data: dict) -> dict:
     """
     pe = market_data.get("pe_ratio")
     price = market_data.get("current_price")
-    market_cap = market_data.get("market_cap")
 
     # Derive EPS from P/E + price if possible: EPS = price / P/E
     eps = (price / pe) if (price and pe and pe > 0) else None

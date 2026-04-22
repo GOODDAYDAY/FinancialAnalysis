@@ -251,7 +251,7 @@ def _compute_decision_override(
 
     # Hard rule: strong recent rally → never sell
     r5 = _safe_number((momentum.get("returns") or {}).get("5d"), default=0)
-    r20 = _safe_number((momentum.get("returns") or {}).get("20d"), default=0)
+    _r20 = _safe_number((momentum.get("returns") or {}).get("20d"), default=0)
     breakout = bool(momentum.get("breakout_20"))
 
     # Debate judge strength (if present, influences confidence floor)

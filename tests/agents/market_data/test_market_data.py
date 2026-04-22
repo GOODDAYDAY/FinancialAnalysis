@@ -2,7 +2,6 @@
 
 import pytest
 from backend.agents.market_data.node import market_data_node
-from backend.agents.market_data.providers import fetch_market_data
 
 
 class TestLiveMarketData:

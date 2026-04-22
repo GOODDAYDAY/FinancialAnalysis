@@ -10,7 +10,6 @@ Verifies that each agent:
 These run on every CI push as part of the benchmark job.
 """
 
-import pytest
 from backend.agents.market_data.node import market_data_node
 from backend.agents.macro_env.node import macro_env_node
 from backend.agents.sector.node import sector_node

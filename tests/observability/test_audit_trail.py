@@ -6,20 +6,14 @@ and the quick() convenience function.
 """
 
 import json
-import os
 import threading
-import tempfile
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 from backend.observability.audit_trail import (
     AuditEvent,
     AuditKind,
     audit_log,
     quick,
-    _AUDIT_PATH,
-    _LOCK,
     _ensure_dir,
 )
 

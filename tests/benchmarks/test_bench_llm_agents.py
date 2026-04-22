@@ -12,15 +12,12 @@ This verifies that each agent:
 Zero real API calls — runs on every CI push.
 """
 
-from unittest.mock import patch, MagicMock
-import pytest
+from unittest.mock import patch
 
 from backend.state import (
-    SentimentOutput, FundamentalOutput, RiskOutput,
-    DebateArgument, RecommendationOutput,
+    RecommendationOutput,
 )
 from backend.agents.orchestrator.node import IntentResult
-from backend.agents.debate_judge.node import JudgeDecision
 from tests.benchmarks.conftest import (
     MOCK_BULL, MOCK_BEAR, MOCK_INTENT, MOCK_SENTIMENT,
     MOCK_FUNDAMENTAL, MOCK_JUDGE, MOCK_RISK, MOCK_RECOMMENDATION,

@@ -9,7 +9,6 @@ at commit time.
 All checks are source-level (AST/text scan) — no LLM calls.
 """
 
-import ast
 import re
 from pathlib import Path
 

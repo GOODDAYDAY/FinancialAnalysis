@@ -5,8 +5,6 @@ Covers: token aggregation, cost calculation, per-agent breakdown,
 budget warnings, thread-local isolation, and error handling on bad usage data.
 """
 
-import pytest
-from unittest.mock import patch
 
 from backend.observability.token_tracker import (
     TokenTracker,

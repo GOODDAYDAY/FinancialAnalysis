@@ -10,12 +10,11 @@ work fine; these tests validate the API contract on any platform.
 """
 
 import os
-import tempfile
 import pytest
 
 mlflow = pytest.importorskip("mlflow")
 
-from backend.mlflow_utils import (
+from backend.mlflow_utils import (  # noqa: E402
     start_mlflow_run,
     log_param,
     log_params,
@@ -61,7 +60,7 @@ class TestStartMLflowRun:
         with start_mlflow_run(
             experiment_name="new_experiment_test",
             tracking_uri=None,
-        ) as run:
+        ) as _run:
             pass
         # Verify experiment exists
         client = mlflow.tracking.MlflowClient()
@@ -174,12 +173,11 @@ class TestGracefulDegradation:
     @pytest.mark.skipif(os.name == "nt", reason="MLflow on Windows doesn't handle local paths as URIs")
     def test_start_run_bad_uri_returns_none(self):
         """Passing a local path that doesn't exist — MLflow should create it (no error)."""
-        import tempfile
-        bad_uri = os.path.join(tempfile.gettempdir(), "mlflow_nonexistent_test", "mlruns")
+        bad_uri = os.path.join("/tmp", "mlflow_nonexistent_test", "mlruns")
         with start_mlflow_run(
             experiment_name="bad_uri_test",
             tracking_uri=bad_uri,
-        ) as run:
+        ) as _run:
             pass
 
     def test_log_param_no_active_run_no_error(self, caplog):

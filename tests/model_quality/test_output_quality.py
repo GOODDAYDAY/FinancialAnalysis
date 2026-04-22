@@ -5,7 +5,6 @@ Covers: output completeness, factor list quality, horizon validity,
 and overall structural integrity of RecommendationOutput.
 """
 
-import pytest
 
 from backend.state import RecommendationOutput
 

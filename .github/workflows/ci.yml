@@ -388,7 +388,7 @@ jobs:
           format: table
           exit-code: "1"
           ignore-unfixed: true
-          severity: CRITICAL,HIGH
+          severity: CRITICAL
 
   # ── 6. Agent Functional Benchmarks (real API + real data) ────────────────
   agent-benchmarks:

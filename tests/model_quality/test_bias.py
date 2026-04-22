@@ -5,7 +5,6 @@ Covers: detecting overly-bullish or overly-bearish recommendations without
 supporting evidence, single-sided reasoning, and extreme confidence without data.
 """
 
-import pytest
 
 from backend.state import RecommendationOutput
 
