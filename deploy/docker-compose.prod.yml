@@ -1,0 +1,42 @@
+# Production overrides for docker-compose.yml
+# Usage: docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+#
+# This file:
+# - Pins the image to a specific tag from GHCR
+# - Adds resource limits
+# - Configures log rotation
+# - Sets restart policy
+
+services:
+  app:
+    image: ghcr.io/${GITHUB_REPOSITORY:-owner/multi-agent-investment-research}/app:${APP_TAG:-latest}
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+        reservations:
+          memory: 1G
+          cpus: "0.5"
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  mlflow:
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

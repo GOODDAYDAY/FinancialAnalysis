@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  # ── Streamlit application ─────────────────────────────────────────────────
+  app:
+    image: ${APP_IMAGE:-ghcr.io/${GITHUB_REPOSITORY:-owner/multi-agent-investment-research}/app:latest}
+    build: .
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_EXPERIMENT_NAME=investment-research
+    depends_on:
+      - mlflow
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── MLflow tracking server ────────────────────────────────────────────────
+  mlflow:
+    image: python:3.11-slim
+    ports:
+      - "5000:5000"
+    command: >
+      bash -c "pip install --no-cache-dir mlflow>=2.0.0 &&
+               mlflow server
+               --host 0.0.0.0
+               --port 5000
+               --backend-store-uri /mlruns
+               --default-artifact-root /mlartifacts"
+    volumes:
+      - mlflow-data:/mlruns
+      - mlflow-artifacts:/mlartifacts
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  mlflow-data:
+  mlflow-artifacts:

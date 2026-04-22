@@ -1,0 +1,46 @@
+# Virtual environments
+.venv
+venv
+.env
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+*.egg
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Git
+.git
+.gitignore
+
+# MLflow local data
+mlruns
+mlartifacts
+
+# Test reports
+reports/
+pytest_cache
+.pytest_cache
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+LICENSE
+
+# CI
+.github/
+
+# Docker files (avoid recursive copy)
+Dockerfile
+docker-compose.yml
+.dockerignore
