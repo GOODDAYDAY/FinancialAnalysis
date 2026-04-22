@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ── Streamlit application ─────────────────────────────────────────────────
   app:
@@ -29,18 +27,19 @@ services:
 
   # ── MLflow tracking server ────────────────────────────────────────────────
   mlflow:
-    image: python:3.11-slim
+    image: ghcr.io/mlflow/mlflow:latest
     ports:
       - "5000:5000"
     command: >
-      bash -c "pip install --no-cache-dir mlflow>=2.0.0 &&
-               mlflow server
-               --host 0.0.0.0
-               --port 5000
-               --backend-store-uri /mlruns
-               --default-artifact-root /mlartifacts"
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --allowed-hosts '*'
+      --cors-allowed-origins '*'
+      --backend-store-uri sqlite:///mlflow.db
+      --default-artifact-root /mlartifacts
     volumes:
-      - mlflow-data:/mlruns
+      - mlflow-data:/mlflow
       - mlflow-artifacts:/mlartifacts
     restart: unless-stopped
     deploy:
