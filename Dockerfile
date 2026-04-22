@@ -16,7 +16,7 @@ WORKDIR /app
 
 # System deps for akshare and other native libs
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc libgl1-mesa-glx curl && \
+    apt-get install -y --no-install-recommends gcc libgl1 curl && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
 
