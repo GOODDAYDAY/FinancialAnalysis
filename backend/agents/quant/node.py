@@ -14,6 +14,9 @@ from backend.agents.quant.signals import (
     compute_pe_signals,
 )
 from backend.agents.quant.advanced_signals import compute_advanced_signals
+from backend.config import settings
+from backend import mlflow_utils
+from backend.feature_store import compute_features as compute_all_features
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,9 @@ def quant_node(state: dict) -> dict:
         }
 
     logger.info("Running quant analysis for %s", ticker)
+
+    # Compute features via the Feature Store (unified, versioned)
+    features = compute_all_features(ticker)
 
     price = market_data.get("current_price", 0)
 
@@ -85,6 +91,9 @@ def quant_node(state: dict) -> dict:
 
     logger.info("Quant for %s: score=%d, verdict=%s", ticker, score, verdict)
 
+    # MLflow: log quant metrics for experiment tracking
+    _log_quant_to_mlflow(ticker, score, verdict, signals, features)
+
     return {
         "quant": quant_result,
         "reasoning_chain": [{
@@ -96,3 +105,28 @@ def quant_node(state: dict) -> dict:
             "summary": summary,
         }],
     }
+
+
+def _log_quant_to_mlflow(ticker, score, verdict, signals, features: dict | None = None):
+    """Log quant analysis results to MLflow for experiment tracking."""
+    try:
+        run_name = f"quant-{ticker}"
+        with mlflow_utils.start_mlflow_run(
+            experiment_name=f"{settings.mlflow_experiment_name}/quant",
+            run_name=run_name,
+            tracking_uri=settings.mlflow_tracking_uri or None,
+        ) as run:
+            if run is None:
+                return
+            params = {"ticker": ticker, "verdict": verdict}
+            if features and "feature_schema_version" in features:
+                params["feature_schema_version"] = features["feature_schema_version"]
+            mlflow_utils.log_params(params)
+            mlflow_utils.log_metrics({
+                "quant_score": score,
+                "bullish_count": len([s for s in signals if s["type"] == "bullish"]),
+                "bearish_count": len([s for s in signals if s["type"] == "bearish"]),
+                "neutral_count": len([s for s in signals if s["type"] == "neutral"]),
+            })
+    except Exception as e:
+        logger.warning("MLflow logging in quant failed: %s", e)
