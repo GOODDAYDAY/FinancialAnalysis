@@ -1,5 +1,6 @@
 """Real API tests for Market Data Agent (yfinance)."""
 
+import os
 import pytest
 from backend.agents.market_data.node import market_data_node
 
@@ -7,7 +8,7 @@ from backend.agents.market_data.node import market_data_node
 class TestLiveMarketData:
     """Fetch real stock data from yfinance."""
 
-    @pytest.mark.parametrize("ticker", ["600519.SS", "000858.SZ", "AAPL"])
+    @pytest.mark.parametrize("ticker", ["AAPL"])
     def test_fetch_price(self, ticker):
         """Expected: non-null price for known tickers."""
         result = market_data_node({"ticker": ticker})
@@ -15,9 +16,18 @@ class TestLiveMarketData:
         assert md["current_price"] is not None
         assert md["current_price"] > 0
 
+    @pytest.mark.skipif(os.environ.get("GITHUB_ACTIONS") == "true", reason="A-share data unreliable in CI")
+    @pytest.mark.parametrize("ticker", ["600519.SS", "000858.SZ"])
+    def test_fetch_price_a_shares(self, ticker):
+        """Expected: non-null price for A-share tickers (local only)."""
+        result = market_data_node({"ticker": ticker})
+        md = result["market_data"]
+        assert md["current_price"] is not None
+        assert md["current_price"] > 0
+
     def test_technical_indicators_computed(self):
         """Expected: RSI, SMA, MACD all present for major stock."""
-        result = market_data_node({"ticker": "600519.SS"})
+        result = market_data_node({"ticker": "AAPL"})
         md = result["market_data"]
         assert md.get("rsi_14") is not None
         assert md.get("sma_20") is not None

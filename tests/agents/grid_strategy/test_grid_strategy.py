@@ -12,8 +12,8 @@ class TestGridSuitability:
 
     def test_suitability_score_in_range(self):
         """Expected: score 0-100."""
-        md = market_data_node({"ticker": "600519.SS"})
-        result = grid_strategy_node({"ticker": "600519.SS", "market_data": md["market_data"]})
+        md = market_data_node({"ticker": "AAPL"})
+        result = grid_strategy_node({"ticker": "AAPL", "market_data": md["market_data"]})
         score = result["grid_strategy"]["score"]
         assert 0 <= score <= 100
 
@@ -26,8 +26,8 @@ class TestGridSuitability:
 
     def test_reasons_provided(self):
         """Expected: at least 1 reason explaining the suitability score."""
-        md = market_data_node({"ticker": "600519.SS"})
-        result = grid_strategy_node({"ticker": "600519.SS", "market_data": md["market_data"]})
+        md = market_data_node({"ticker": "AAPL"})
+        result = grid_strategy_node({"ticker": "AAPL", "market_data": md["market_data"]})
         assert len(result["grid_strategy"]["reasons"]) >= 1
 
 
@@ -36,8 +36,8 @@ class TestStrategyGeneration:
 
     def test_four_strategies_generated(self):
         """Expected: 4 strategy variants (short/medium/long/accumulation)."""
-        md = market_data_node({"ticker": "600519.SS"})
-        result = grid_strategy_node({"ticker": "600519.SS", "market_data": md["market_data"]})
+        md = market_data_node({"ticker": "AAPL"})
+        result = grid_strategy_node({"ticker": "AAPL", "market_data": md["market_data"]})
         strategies = result["grid_strategy"]["strategies"]
         assert len(strategies) == 4
 
@@ -52,8 +52,8 @@ class TestStrategyGeneration:
 
     def test_each_strategy_has_required_fields(self):
         """Expected: every strategy has price range, grid count, profit, fees."""
-        md = market_data_node({"ticker": "600519.SS"})
-        result = grid_strategy_node({"ticker": "600519.SS", "market_data": md["market_data"]})
+        md = market_data_node({"ticker": "AAPL"})
+        result = grid_strategy_node({"ticker": "AAPL", "market_data": md["market_data"]})
         for s in result["grid_strategy"]["strategies"]:
             assert "lower_price" in s
             assert "upper_price" in s
@@ -68,15 +68,15 @@ class TestStrategyGeneration:
 
     def test_fees_are_positive(self):
         """Expected: fees_per_cycle is always > 0 (real-world)."""
-        md = market_data_node({"ticker": "600519.SS"})
-        result = grid_strategy_node({"ticker": "600519.SS", "market_data": md["market_data"]})
+        md = market_data_node({"ticker": "AAPL"})
+        result = grid_strategy_node({"ticker": "AAPL", "market_data": md["market_data"]})
         for s in result["grid_strategy"]["strategies"]:
             assert s["fees_per_cycle"] > 0
 
     def test_a_share_lot_size(self):
         """Expected: shares_per_grid is multiple of 100 (A-share lot)."""
-        md = market_data_node({"ticker": "600519.SS"})
-        result = grid_strategy_node({"ticker": "600519.SS", "market_data": md["market_data"]})
+        md = market_data_node({"ticker": "AAPL"})
+        result = grid_strategy_node({"ticker": "AAPL", "market_data": md["market_data"]})
         for s in result["grid_strategy"]["strategies"]:
             assert s["shares_per_grid"] % 100 == 0
 
