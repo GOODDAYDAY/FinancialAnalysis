@@ -11,7 +11,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/app
+  IMAGE_NAME: gooddayday/financialanalysis/app
 
 jobs:
   # ── 1. Build and push Docker image ──────────────────────────────────────
