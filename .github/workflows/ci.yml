@@ -210,6 +210,7 @@ jobs:
     name: Data Validation · Schema · Quality
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: ml-contracts
 
     steps:
       - name: Checkout
@@ -260,6 +261,7 @@ jobs:
     name: Model Quality · Bias · Hallucination
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: data-validation
 
     steps:
       - name: Checkout
@@ -320,6 +322,7 @@ jobs:
     name: MLflow Integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: data-validation
 
     steps:
       - name: Checkout
@@ -359,6 +362,7 @@ jobs:
     name: Docker Build · Scan
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: [ml-contracts, data-validation, dependency-audit, model-quality, mlflow, grid-excel-validation]
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
     steps:
@@ -395,7 +399,7 @@ jobs:
     name: Agent Functional Benchmarks — Real API
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: ml-contracts
+    needs: docker-build
 
     steps:
       - name: Checkout
@@ -508,7 +512,7 @@ jobs:
     name: Dependency Audit · Secret Scan
     runs-on: ubuntu-latest
     timeout-minutes: 8
-    needs: []  # independent supply-chain gate
+    needs: ml-contracts
 
     steps:
       - name: Checkout
@@ -570,6 +574,7 @@ jobs:
     name: Excel Validation (REQ-002)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    needs: model-quality
 
     steps:
       - name: Checkout
@@ -611,7 +616,7 @@ jobs:
     timeout-minutes: 45
     # Only run on manual dispatch — agent tests make real DeepSeek + yfinance calls
     if: github.event_name == 'workflow_dispatch'
-    needs: ml-contracts
+    needs: agent-benchmarks
 
     steps:
       - name: Checkout
