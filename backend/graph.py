@@ -216,9 +216,11 @@ def run_analysis(query: str) -> dict:
     # Fix #1: One MLflow run per analysis — agents log to this single run
     try:
         from backend import mlflow_utils
+        from backend.config import settings
         ticker_hint = query.split()[0] if query.split() else "unknown"
         ctx_mgr = mlflow_utils.start_mlflow_run(
             run_name=f"analysis-{ticker_hint}",
+            tracking_uri=settings.mlflow_tracking_uri or None,
         )
     except Exception:
         ctx_mgr = _null_context()
