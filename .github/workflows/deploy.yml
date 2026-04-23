@@ -1,7 +1,9 @@
 name: Deploy to swe5008 server
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI — MLSecOps Gate"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -19,6 +21,7 @@ jobs:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: read
       packages: write
